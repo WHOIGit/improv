@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from improv.ids import ImageIdParser
     from improv.models.image import ImageRecord
     from improv.models.provenance import ProvenanceEnvelope
-    from improv.oltp.models import Dataset, DatasetSpan, Sample
+    from improv.oltp.models import Dataset, DatasetSpan, Instrument, Sample
     from improv.plugins import ProvenancePlugin
 
 
@@ -178,6 +178,95 @@ class ImageService:
             ]
 
         return list(get_images(self._store, instrument, time_start, time_end))
+
+    # ------------------------------------------------------------------
+    # Instrument registration
+    # ------------------------------------------------------------------
+
+    def register_instrument(
+        self,
+        name: str,
+        type: str,
+        deployment_start: "datetime",
+        serial_number: str | None = None,
+        deployment_end: "datetime | None" = None,
+        description: str | None = None,
+    ) -> "tuple[Instrument, bool]":
+        """Register an instrument; return (instrument, created)."""
+        from improv.oltp.queries import get_instrument, register_instrument
+        existing = get_instrument(self._session, name)
+        if existing is not None:
+            return existing, False
+        instrument = register_instrument(
+            self._session, name, type, deployment_start,
+            serial_number=serial_number,
+            deployment_end=deployment_end,
+            description=description,
+        )
+        self._session.commit()
+        return instrument, True
+
+    def get_instrument(self, name: str) -> "Instrument | None":
+        from improv.oltp.queries import get_instrument
+        return get_instrument(self._session, name)
+
+    # ------------------------------------------------------------------
+    # Sample registration
+    # ------------------------------------------------------------------
+
+    def register_sample(
+        self,
+        sample_id: str,
+        instrument: str,
+        time_start: "datetime",
+        time_end: "datetime",
+        quality_flag: int | None = None,
+        alternate_sample_id: str | None = None,
+        storage_key: str | None = None,
+        meta: dict | None = None,
+    ) -> "tuple[Sample, bool]":
+        """Register a sample; return (sample, created)."""
+        from improv.oltp.queries import get_sample, register_sample
+        existing = get_sample(self._session, sample_id)
+        if existing is not None:
+            return existing, False
+        sample = register_sample(
+            self._session, sample_id, instrument, time_start, time_end,
+            quality_flag=quality_flag,
+            alternate_sample_id=alternate_sample_id,
+            storage_key=storage_key,
+            meta=meta,
+        )
+        self._session.commit()
+        return sample, True
+
+    def register_samples_batch(
+        self,
+        records: list[dict],
+    ) -> "tuple[int, int]":
+        """Register a batch of samples idempotently; return (registered, skipped)."""
+        from improv.oltp.queries import get_sample, register_sample
+        registered = skipped = 0
+        for r in records:
+            existing = get_sample(self._session, r["sample_id"])
+            if existing is not None:
+                skipped += 1
+                continue
+            register_sample(
+                self._session,
+                r["sample_id"],
+                r["instrument"],
+                r["time_start"],
+                r["time_end"],
+                quality_flag=r.get("quality_flag"),
+                alternate_sample_id=r.get("alternate_sample_id"),
+                storage_key=r.get("storage_key"),
+                meta=r.get("metadata"),
+            )
+            registered += 1
+        if registered:
+            self._session.commit()
+        return registered, skipped
 
     # ------------------------------------------------------------------
     # Sample-scoped

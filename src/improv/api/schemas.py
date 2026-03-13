@@ -96,8 +96,46 @@ class DatasetResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Instruments
+# ---------------------------------------------------------------------------
+
+class InstrumentCreate(BaseModel):
+    name: str
+    type: str
+    deployment_start: datetime
+    serial_number: str | None = None
+    deployment_end: datetime | None = None
+    description: str | None = None
+
+
+class InstrumentResponse(BaseModel):
+    name: str
+    type: str
+    deployment_start: datetime
+    serial_number: str | None
+    deployment_end: datetime | None
+    description: str | None
+
+
+# ---------------------------------------------------------------------------
 # Samples
 # ---------------------------------------------------------------------------
+
+class SampleCreate(BaseModel):
+    sample_id: str
+    instrument: str
+    time_start: datetime
+    time_end: datetime
+    quality_flag: int | None = None
+    alternate_sample_id: str | None = None
+    storage_key: str | None = None
+    metadata: dict = {}
+
+
+class BatchRegisterResponse(BaseModel):
+    registered: int
+    skipped: int
+
 
 class SampleResponse(BaseModel):
     sample_id: str

@@ -15,7 +15,7 @@ from amplify_db_utils import DuckDBParquetConfig, DuckDBParquetStore
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from improv.api.routers import blobs, datasets, images, provenance, samples
+from improv.api.routers import blobs, datasets, images, instruments, provenance, samples
 from improv.oltp.models import Base
 from improv.plugins.geolocation import GeoLocationPlugin
 from improv.plugins.sample_context import SampleContextPlugin
@@ -57,6 +57,7 @@ def client(tmp_path):
     app.state.service = service
     app.include_router(images.router)
     app.include_router(provenance.router)
+    app.include_router(instruments.router)
     app.include_router(samples.router)
     app.include_router(blobs.router)
     app.include_router(datasets.router)
