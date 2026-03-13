@@ -15,13 +15,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+db = [
+    "sqlalchemy>=2.0",
+    "psycopg2-binary",
+]
 service = [
     "fastapi",
     "uvicorn[standard]",
-    "sqlalchemy>=2.0",
     "alembic",
     "click",
-    "psycopg2-binary",
+    "improv[db]",
 ]
 dev = [
     "pytest",

@@ -86,18 +86,23 @@ def store_with_tables(store, parsers):
 
 
 # ---------------------------------------------------------------------------
-# OLTP session (SQLite in-memory)
+# OLTP (SQLite in-memory)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def session():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
+def engine():
+    eng = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(eng)
+    yield eng
+    eng.dispose()
+
+
+@pytest.fixture
+def session(engine):
     Session = sessionmaker(bind=engine)
     sess = Session()
     yield sess
     sess.close()
-    engine.dispose()
 
 
 # ---------------------------------------------------------------------------
