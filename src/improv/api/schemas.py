@@ -68,6 +68,34 @@ class ProvenanceBatchIngest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Datasets
+# ---------------------------------------------------------------------------
+
+class DatasetSpanCreate(BaseModel):
+    instrument: str
+    time_start: datetime
+    time_end: datetime
+
+
+class DatasetSpanResponse(BaseModel):
+    span_id: str
+    instrument: str
+    time_start: datetime
+    time_end: datetime
+
+
+class DatasetCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class DatasetResponse(BaseModel):
+    name: str
+    description: str | None
+    spans: list[DatasetSpanResponse]
+
+
+# ---------------------------------------------------------------------------
 # Samples
 # ---------------------------------------------------------------------------
 

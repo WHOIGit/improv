@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from improv.ids import ImageIdParser
     from improv.models.image import ImageRecord
     from improv.models.provenance import ProvenanceEnvelope
-    from improv.oltp.models import Sample
+    from improv.oltp.models import Dataset, DatasetSpan, Sample
     from improv.plugins import ProvenancePlugin
 
 
@@ -213,6 +213,53 @@ class ImageService:
             yield from get_images(
                 self._store, f["instrument"], f["time_start"], f["time_end"]
             )
+
+    def create_dataset(
+        self, name: str, description: str | None = None
+    ) -> "tuple[Dataset, bool]":
+        """Create a dataset; return (dataset, created) where created=False if it already existed."""
+        from improv.oltp.queries import get_dataset, register_dataset
+        existing = get_dataset(self._session, name)
+        if existing is not None:
+            return existing, False
+        dataset = register_dataset(self._session, name, description)
+        self._session.commit()
+        return dataset, True
+
+    def get_dataset(self, name: str) -> "Dataset | None":
+        from improv.oltp.queries import get_dataset
+        return get_dataset(self._session, name)
+
+    def list_datasets(self) -> "list[Dataset]":
+        from improv.oltp.models import Dataset
+        return list(self._session.query(Dataset).all())
+
+    def add_dataset_spans(
+        self,
+        dataset_name: str,
+        spans: "list[dict]",
+    ) -> "list[DatasetSpan]":
+        """Add one or more spans to an existing dataset.  Raises ValueError if not found."""
+        from improv.oltp.queries import add_dataset_span, get_dataset
+        if get_dataset(self._session, dataset_name) is None:
+            raise ValueError(f"Dataset {dataset_name!r} not found.")
+        result = []
+        for s in spans:
+            result.append(
+                add_dataset_span(
+                    self._session,
+                    dataset_name,
+                    s["instrument"],
+                    s["time_start"],
+                    s["time_end"],
+                )
+            )
+        self._session.commit()
+        return result
+
+    def get_dataset_spans(self, dataset_name: str) -> "list[DatasetSpan]":
+        from improv.oltp.queries import get_dataset_spans
+        return get_dataset_spans(self._session, dataset_name)
 
     # ------------------------------------------------------------------
     # Binary products
