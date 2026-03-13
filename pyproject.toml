@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "improv"
+version = "0.1.0"
+description = "Image provenance substrate for scientific imaging instruments"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "pyarrow>=14.0",
+    "amplify-db-utils @ git+https://github.com/WHOIGit/amplify-db-utils.git",
+    "amplify-storage-utils @ git+https://github.com/WHOIGit/amplify-storage-utils.git@v1.7.0",
+]
+
+[project.optional-dependencies]
+service = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy>=2.0",
+    "alembic",
+    "click",
+    "psycopg2-binary",
+]
+dev = [
+    "pytest",
+    "httpx",
+]
+
+[project.scripts]
+improv = "improv.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
