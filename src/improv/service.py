@@ -378,9 +378,9 @@ class ImageService:
     # ------------------------------------------------------------------
 
     def get_blob_key(self, image_id: str, instrument: str | None = None) -> str | None:
-        """Resolve a storage key for the blob (segmentation mask) of an image.
+        """Resolve an object key for the blob (segmentation mask) of an image.
 
-        Looks up provenance records with kind="blob" and returns the storage_key
+        Looks up provenance records with kind="blob" and returns the object_key
         from the most recent record's data payload. Returns None if no blob exists.
         """
         records = self.get_provenance(image_id, kind="blob", instrument=instrument)
@@ -388,4 +388,4 @@ class ImageService:
             return None
         # Most recent record is authoritative
         latest = max(records, key=lambda r: r.timestamp)
-        return latest.data.get("storage_key")
+        return latest.data.get("object_key")
