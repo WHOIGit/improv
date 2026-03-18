@@ -44,11 +44,14 @@ class ProvenancePlugin(Protocol):
         ...
 
 
+from improv.plugins.blob import BlobPlugin, BlobRecord
 from improv.plugins.geolocation import GeoLocationIndexRecord, GeoLocationPlugin
 from improv.plugins.sample_context import SampleContextPlugin, SampleIndexRecord
 
 __all__ = [
     "ProvenancePlugin",
+    "BlobPlugin",
+    "BlobRecord",
     "GeoLocationPlugin",
     "GeoLocationIndexRecord",
     "SampleContextPlugin",
