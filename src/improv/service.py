@@ -73,7 +73,11 @@ class ImageService:
         """Write image records to the columnar store."""
         write_images(self._store, records, self._parsers)
 
-    def ingest_provenance(self, records: "list[ProvenanceEnvelope]") -> None:
+    def ingest_provenance(
+        self,
+        records: "list[ProvenanceEnvelope]",
+        write_indexes: bool = True,
+    ) -> None:
         """Write provenance records and dual-write plugin index entries.
 
         Enriches partition key fields (instrument, year, month) on each record
@@ -82,6 +86,9 @@ class ImageService:
         For each record, if a registered plugin handles its kind, calls
         extract_index_record and writes the result to the plugin's index table.
         Records with no registered plugin are stored with no index write.
+
+        Pass ``write_indexes=False`` to skip per-record index writes entirely.
+        Batch producers should do so and perform their own batched store.write.
         """
         from datetime import timezone
 
@@ -107,6 +114,9 @@ class ImageService:
             )
 
         write_provenance(self._store, enriched, self._parsers)
+
+        if not write_indexes:
+            return
 
         for envelope in enriched:
             plugin = self._plugins.get(envelope.kind)
