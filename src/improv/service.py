@@ -136,7 +136,7 @@ class ImageService:
             if plugin is None:
                 continue
             index_record = plugin.extract_index_record(envelope)
-            if index_record is not None:
+            if index_record is not None and plugin.index_table is not None:
                 self._store.write(plugin.index_table, [index_record])
 
     # ------------------------------------------------------------------

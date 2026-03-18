@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    import pyarrow as pa
     from amplify_db_utils import ColumnarStore
     from improv.models.provenance import ProvenanceEnvelope
 
@@ -24,9 +25,9 @@ class ProvenancePlugin(Protocol):
     create_index is called at service startup (idempotent).
     """
 
-    kind: str               # provenance kind this plugin handles
-    index_table: str        # db-utils table name for the index
-    index_schema: type      # Pydantic model for index records
+    kind: str                               # provenance kind this plugin handles
+    index_table: str | None                 # db-utils table name for the index; None = no index write
+    index_schema: type | pa.Schema | None   # Pydantic model or Arrow schema for index records; None = no index
     partition_by: list[str]
 
     def create_index(self, store: "ColumnarStore") -> None:
