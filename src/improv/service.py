@@ -73,22 +73,15 @@ class ImageService:
         """Write image records to the columnar store."""
         write_images(self._store, records, self._parsers)
 
-    def ingest_provenance(
+    def enrich_envelopes(
         self,
         records: "list[ProvenanceEnvelope]",
-        write_indexes: bool = True,
-    ) -> None:
-        """Write provenance records and dual-write plugin index entries.
+    ) -> "list[ProvenanceEnvelope]":
+        """Return copies of *records* with partition keys (instrument, year, month) filled in.
 
-        Enriches partition key fields (instrument, year, month) on each record
-        before writing, so that plugin index records have consistent keys.
-
-        For each record, if a registered plugin handles its kind, calls
-        extract_index_record and writes the result to the plugin's index table.
-        Records with no registered plugin are stored with no index write.
-
-        Pass ``write_indexes=False`` to skip per-record index writes entirely.
-        Batch producers should do so and perform their own batched store.write.
+        Batch producers that call ``plugin.extract_index_record`` directly need
+        the same enrichment that ``ingest_provenance`` applies internally.  Call
+        this first so that index records have consistent partition keys.
         """
         from datetime import timezone
 
@@ -112,6 +105,26 @@ class ImageService:
                     }
                 )
             )
+        return enriched
+
+    def ingest_provenance(
+        self,
+        records: "list[ProvenanceEnvelope]",
+        write_indexes: bool = True,
+    ) -> None:
+        """Write provenance records and dual-write plugin index entries.
+
+        Enriches partition key fields (instrument, year, month) on each record
+        before writing, so that plugin index records have consistent keys.
+
+        For each record, if a registered plugin handles its kind, calls
+        extract_index_record and writes the result to the plugin's index table.
+        Records with no registered plugin are stored with no index write.
+
+        Pass ``write_indexes=False`` to skip per-record index writes entirely.
+        Batch producers should do so and perform their own batched store.write.
+        """
+        enriched = self.enrich_envelopes(records)
 
         write_provenance(self._store, enriched, self._parsers)
 
