@@ -44,6 +44,14 @@ class ProvenancePlugin(Protocol):
         ...
 
 
+from improv.plugins.annotation import (
+    FullFrameRegion,
+    BBoxRegion,
+    IFCBCNNClassificationIndexRecord,
+    IFCBCNNClassificationPlugin,
+    MachineAnnotationRecord,
+    RegionDescriptor,
+)
 from improv.plugins.blob import BlobPlugin, BlobRecord
 from improv.plugins.geolocation import GeoLocationIndexRecord, GeoLocationPlugin
 from improv.plugins.ifcb_features import (
@@ -55,6 +63,12 @@ from improv.plugins.sample_context import SampleContextPlugin, SampleIndexRecord
 
 __all__ = [
     "ProvenancePlugin",
+    "MachineAnnotationRecord",
+    "FullFrameRegion",
+    "BBoxRegion",
+    "RegionDescriptor",
+    "IFCBCNNClassificationPlugin",
+    "IFCBCNNClassificationIndexRecord",
     "BlobPlugin",
     "BlobRecord",
     "IFCBFeaturesPlugin",
