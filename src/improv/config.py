@@ -10,6 +10,7 @@ Environment variables (for load_config):
   IMPROV_S3_ENDPOINT      — S3 endpoint override (optional)
   IMPROV_S3_ACCESS_KEY    — S3 access key (optional)
   IMPROV_S3_SECRET_KEY    — S3 secret key (optional)
+  IMPROV_STORAGE_PATH     — local path for HashdirStore object storage (optional)
 """
 
 from __future__ import annotations
@@ -58,7 +59,14 @@ def load_config() -> ImprovConfig:
         s3_secret_key=os.environ.get("IMPROV_S3_SECRET_KEY"),
     )
 
+    storage = None
+    storage_path = os.environ.get("IMPROV_STORAGE_PATH")
+    if storage_path:
+        from storage.fs import HashdirStore
+        storage = HashdirStore(storage_path)
+
     return ImprovConfig(
         db_config=db_cfg,
         database_url=os.environ.get("IMPROV_DATABASE_URL"),
+        storage=storage,
     )
