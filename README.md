@@ -12,11 +12,11 @@ Every image in the system accumulates an append-only **provenance log**: geoloca
 
 | Layer | What | Backend |
 |-------|------|---------|
-| Images | One row per image: ID, instrument, timestamp, segmentation lineage | columnar (DuckDB+Parquet or VAST DB) |
-| Provenance | Append-only log of every operation performed on each image | columnar |
-| Spatial index | Pre-promoted lat/lon for fast bounding-box queries | columnar |
-| Sample index | Image↔sample mappings for discrete-sample instruments | columnar |
-| Instruments, samples, datasets | Mutable organizing metadata | PostgreSQL |
+| Image bytes | Raw image data, keyed by image ID | Object store (HashdirStore / S3) |
+| Image metadata | One row per image: ID, instrument, timestamp, segmentation lineage | Columnar (DuckDB+Parquet or VAST DB) |
+| Provenance | Append-only log of every operation performed on each image | Columnar |
+| Plugin indexes | Promoted fields for fast queries (spatial, features, classifications) | Columnar |
+| Instruments, samples, datasets | Mutable organizing metadata | PostgreSQL or SQLite |
 
 ### What you can query
 
@@ -28,7 +28,7 @@ Every image in the system accumulates an append-only **provenance log**: geoloca
 
 ### What it is not
 
-improv is a data substrate. It does not perform segmentation, run classifiers, or manage annotation workflows. Those tools write their outputs into the provenance log. Dashboards, REST APIs, and analysis pipelines read from it.
+improv is a data substrate. It does not perform segmentation, run classifiers, or manage annotation workflows. Those tools write their outputs into the provenance log. Instrument-specific REST APIs, dashboards, and analysis pipelines sit on top of improv and present data in instrument-appropriate ways.
 
 ### Scale
 
@@ -40,12 +40,14 @@ The same API and data model work from a single laptop during a field deployment 
 
 ### Install
 
+Download the code or clone the repository. In the code directory:
+
 ```bash
 # Base install — for batch producers (ingest pipelines, classifiers)
-pip install improv
+pip install .
 
 # Service install — adds FastAPI, SQLAlchemy, Alembic, CLI
-pip install 'improv[service]'
+pip install '.[service]'
 ```
 
 ### Set up the database (service mode)
@@ -57,10 +59,12 @@ export IMPROV_DB_ROOT="/data/improv/columnar"
 improv db upgrade
 ```
 
-For development, SQLite works fine:
+For local development, SQLite + local filesystem work fine:
 
 ```bash
 export IMPROV_DATABASE_URL="sqlite:///improv.db"
+export IMPROV_DB_ROOT="./improv-data"
+export IMPROV_STORAGE_PATH="./improv-objects"
 ```
 
 ---
@@ -72,7 +76,6 @@ These examples use a fictional instrument called **MarineScope** (a towed underw
 ### 1. Register a parser and instrument
 
 ```python
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from improv.ids import ImageIdParser, ImageIdParts
 
@@ -98,11 +101,10 @@ class MarineScopeParser:
 from amplify_db_utils import DuckDBParquetConfig, DuckDBParquetStore
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from storage.fs import HashdirStore
 
-from improv.config import ImprovConfig
 from improv.oltp.models import Base
-from improv.plugins.geolocation import GeoLocationPlugin
-from improv.plugins.sample_context import SampleContextPlugin
+from improv.plugins import GeoLocationPlugin, SampleContextPlugin
 from improv.service import ImageService
 from improv.store.tables import register_service_tables
 
@@ -110,6 +112,7 @@ store = DuckDBParquetStore(DuckDBParquetConfig(root="/data/improv/columnar"))
 engine = create_engine("postgresql://user:pass@localhost/improv")
 Base.metadata.create_all(engine)
 session = sessionmaker(bind=engine)()
+storage = HashdirStore("/data/improv/objects")
 
 parsers = [MarineScopeParser()]
 plugins = [GeoLocationPlugin(), SampleContextPlugin()]
@@ -121,15 +124,22 @@ service = ImageService(
     session=session,
     parsers=parsers,
     plugins=plugins,
+    storage=storage,
 )
 ```
 
-### 3. Ingest images
+### 3. Store image bytes and metadata
 
 ```python
 from datetime import datetime, timezone
 from improv.models import ImageRecord
 
+# Store the raw bytes — keyed by image_id
+for i in range(1, 101):
+    image_id = f"MS_20240615T143022_{i:05d}"
+    storage.put(image_id, raw_image_bytes[i])
+
+# Register the metadata
 images = [
     ImageRecord(
         image_id=f"MS_20240615T143022_{i:05d}",
@@ -224,9 +234,9 @@ register_service_tables(store, plugins=[])
 # Write a batch of images
 write_images(store, image_records, parsers=[MarineScopeParser()])
 
-# Write features provenance + dual-write to features_index (producer's responsibility)
+# Write features provenance + dual-write to index table (producer's responsibility)
 write_provenance(store, feature_envelopes, parsers=[MarineScopeParser()])
-store.write("features_index", feature_index_records)
+store.write("ifcb_features_index", feature_index_records)
 ```
 
 ### 8. REST API
@@ -235,6 +245,7 @@ store.write("features_index", feature_index_records)
 from improv.api.app import create_app
 from improv.config import ImprovConfig
 from amplify_db_utils import DuckDBParquetConfig
+from storage.fs import HashdirStore
 import uvicorn
 
 config = ImprovConfig(
@@ -242,6 +253,7 @@ config = ImprovConfig(
     database_url="postgresql://user:pass@localhost/improv",
     parsers=[MarineScopeParser()],
     plugins=[GeoLocationPlugin(), SampleContextPlugin()],
+    storage=HashdirStore("/data/improv/objects"),
 )
 
 app = create_app(config)
@@ -251,18 +263,50 @@ uvicorn.run(app, host="0.0.0.0", port=8000)
 Key endpoints:
 
 ```
-GET  /images/{image_id}
-GET  /images?instrument=MarineScope-01&time_start=2024-06-15T14:00:00Z&time_end=...
-GET  /images?collection=NES-LTER-cruise-EN688
-GET  /images/{image_id}/provenance
-GET  /images/{image_id}/provenance/geolocation
-POST /images                           (ingest)
-POST /images/{image_id}/provenance     (single; triggers plugin dual-write)
-POST /images/provenance/batch          (small batch)
+GET  /images/{image_id}                → image bytes
+GET  /images/{image_id}/metadata       → image record JSON
+GET  /images/{image_id}/blob           → blob (segmentation mask) bytes
+GET  /images/{image_id}/provenance     → full provenance log
+GET  /images/{image_id}/provenance/{kind}
+GET  /images/search?instrument=...&time_start=...&time_end=...
+GET  /images/search?collection=NES-LTER-cruise-EN688
+POST /images/ingest                    → register image records
+POST /images/{image_id}/provenance     → single provenance (triggers plugin dual-write)
+POST /images/provenance/batch          → batch provenance ingest
+GET  /instruments/{name}
+POST /instruments
 GET  /samples/{sample_id}
 GET  /samples/{sample_id}/images
-GET  /images/{image_id}/blob
+POST /samples
+POST /samples/batch
+GET  /datasets
+GET  /datasets/{name}
+POST /datasets
+POST /datasets/{name}/spans
 ```
+
+---
+
+## Plugin architecture
+
+Plugins extend the provenance system. Each plugin handles a specific provenance `kind` and optionally maintains an index table for fast querying. The service dispatches provenance records to the matching plugin based on `kind`.
+
+### Built-in plugins
+
+| Plugin | Kind | Index table | Purpose |
+|--------|------|-------------|---------|
+| `GeoLocationPlugin` | `geolocation` | `geolocation_index` | Spatial queries |
+| `SampleContextPlugin` | `sample_context` | `sample_index` | Image↔sample lookups |
+| `BlobPlugin` | `blob` | *(none)* | Binary products; storage key in provenance payload |
+
+### Instrument-specific plugins
+
+| Plugin | Kind | Index table | Purpose |
+|--------|------|-------------|---------|
+| `IFCBFeaturesPlugin` | `ifcb_features` | `ifcb_features_index` | Wide table of morphometric scalars |
+| `IFCBCNNClassificationPlugin` | `ifcb_cnn_classification` | `ifcb_cnn_classification_index` | Wide table of class scores |
+
+Instrument-specific plugins live alongside generic ones. The `kind` field determines dispatch. Instrument-facing APIs (e.g., `ifcb-rest-api`) know which kinds to query; improv itself is instrument-agnostic.
 
 ---
 
@@ -271,14 +315,21 @@ GET  /images/{image_id}/blob
 ```
 src/improv/
 ├── models/          # ImageRecord, ProvenanceEnvelope
-├── plugins/         # ProvenancePlugin protocol; built-in geolocation + sample_context
+├── plugins/         # ProvenancePlugin protocol; built-in + instrument-specific plugins
+│   ├── geolocation.py
+│   ├── sample_context.py
+│   ├── blob.py
+│   ├── ifcb_features.py
+│   └── annotation.py       # MachineAnnotationRecord + IFCBCNNClassificationPlugin
 ├── ids.py           # ImageIdParser protocol; make_partition_keys()
 ├── timestamp.py     # validate_timestamp(); ClockCorrection protocol
-├── store/           # columnar store operations (images, provenance, indexes)
+├── store/           # Columnar store operations (images, provenance, indexes)
 ├── oltp/            # SQLAlchemy models; Alembic migrations; CRUD queries
 ├── service.py       # ImageService — central business logic
 ├── config.py        # ImprovConfig; load_config()
 ├── api/             # FastAPI app and routers  [service extra]
+│   ├── routers/     # images, provenance, blobs, instruments, samples, datasets
+│   └── schemas.py   # Pydantic request/response models
 └── cli.py           # improv db upgrade        [service extra]
 ```
 
@@ -287,7 +338,7 @@ src/improv/
 | Package | Install | Role |
 |---------|---------|------|
 | `amplify-db-utils` | base | Columnar storage (DuckDB+Parquet / VAST DB) |
-| `amplify-storage-utils` | base | Binary product retrieval via object store |
+| `amplify-storage-utils` | base | Object storage (HashdirStore / S3) |
 | `pydantic >= 2.0` | base | Models and validation |
 | `pyarrow` | base | Columnar data exchange |
 | `fastapi` + `uvicorn` | `[service]` | REST API |
