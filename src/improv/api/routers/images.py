@@ -95,7 +95,6 @@ def get_image_metadata(
 @router.get("/{image_id}")
 def get_image_data(
     image_id: str,
-    instrument: str | None = None,
     service: ImageService = Depends(get_service),
 ) -> Response:
     """Return the image bytes from the object store."""
