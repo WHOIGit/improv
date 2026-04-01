@@ -11,7 +11,7 @@ IMAGE_ID = "ALPHA_20240115T120000_001"
 
 def ingest_image(client):
     client.post(
-        "/images",
+        "/images/ingest",
         json=[{"image_id": IMAGE_ID, "timestamp": TS.isoformat(), "instrument": "ALPHA"}],
     )
 

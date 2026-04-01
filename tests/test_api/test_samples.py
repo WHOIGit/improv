@@ -26,7 +26,7 @@ def setup_sample(client):
     session.commit()
 
     client.post(
-        "/images",
+        "/images/ingest",
         json=[{"image_id": IMAGE_ID, "timestamp": TS.isoformat(), "instrument": "ALPHA"}],
     )
 
