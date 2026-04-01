@@ -183,7 +183,7 @@ def test_get_blob_key(service):
         kind="blob",
         source="ifcb-features",
         timestamp=TS_JAN,
-        data={"storage_key": "blobs/ALPHA/20240115/001.png"},
+        data={"object_key": "blobs/ALPHA/20240115/001.png"},
         instrument="ALPHA",
     )
     service.ingest_provenance([blob_env])
