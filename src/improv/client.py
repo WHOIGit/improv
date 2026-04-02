@@ -153,3 +153,53 @@ class ImprovClient:
             return None
         resp.raise_for_status()
         return resp.json()
+
+    # ------------------------------------------------------------------
+    # Ingest Tasks
+    # ------------------------------------------------------------------
+
+    def register_ingest_task(
+        self,
+        task_id: str,
+        instrument: str,
+    ) -> tuple[dict, bool]:
+        """Register an ingest task. Returns (task_dict, created).
+
+        Returns created=False if the task already exists (409).
+        This is the idempotency gate — if created=False, skip all
+        columnar and object store writes for this task.
+        """
+        resp = self._client.post(
+            "/ingest-tasks",
+            json={"task_id": task_id, "instrument": instrument},
+        )
+        if resp.status_code == 409:
+            return self.get_ingest_task(task_id), False
+        resp.raise_for_status()
+        return resp.json(), True
+
+    def complete_ingest_task(self, task_id: str) -> dict:
+        """Mark an ingest task as complete."""
+        resp = self._client.patch(
+            f"/ingest-tasks/{task_id}",
+            json={"status": "complete"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def fail_ingest_task(self, task_id: str) -> dict:
+        """Mark an ingest task as failed."""
+        resp = self._client.patch(
+            f"/ingest-tasks/{task_id}",
+            json={"status": "failed"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_ingest_task(self, task_id: str) -> dict | None:
+        """Get an ingest task by ID. Returns None if not found."""
+        resp = self._client.get(f"/ingest-tasks/{task_id}")
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()

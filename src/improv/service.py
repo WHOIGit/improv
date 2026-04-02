@@ -19,7 +19,7 @@ Retrieval flows:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterator
 
 from improv.store.images import (
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from improv.ids import ImageIdParser
     from improv.models.image import ImageRecord
     from improv.models.provenance import ProvenanceEnvelope
-    from improv.oltp.models import Dataset, DatasetSpan, Instrument, Sample
+    from improv.oltp.models import Dataset, DatasetSpan, IngestTask, Instrument, Sample
     from improv.plugins import ProvenancePlugin
 
 
@@ -372,6 +372,57 @@ class ImageService:
     def get_dataset_spans(self, dataset_name: str) -> "list[DatasetSpan]":
         from improv.oltp.queries import get_dataset_spans
         return get_dataset_spans(self._session, dataset_name)
+
+    # ------------------------------------------------------------------
+    # Ingest tasks
+    # ------------------------------------------------------------------
+
+    def register_ingest_task(
+        self,
+        task_id: str,
+        instrument: str,
+    ) -> "tuple[IngestTask, bool]":
+        """Register an ingest task; return (task, created).
+
+        If the task already exists, returns (existing_task, False).
+        This is the idempotency gate for ingest scripts.
+        """
+        from improv.oltp.queries import get_ingest_task, register_ingest_task
+        existing = get_ingest_task(self._session, task_id)
+        if existing is not None:
+            return existing, False
+        task = register_ingest_task(
+            self._session, task_id, instrument,
+            created_at=datetime.now(tz=timezone.utc),
+        )
+        self._session.commit()
+        return task, True
+
+    def complete_ingest_task(self, task_id: str) -> "IngestTask | None":
+        """Mark an ingest task as complete."""
+        from improv.oltp.queries import complete_ingest_task
+        task = complete_ingest_task(
+            self._session, task_id,
+            completed_at=datetime.now(tz=timezone.utc),
+        )
+        if task is not None:
+            self._session.commit()
+        return task
+
+    def fail_ingest_task(self, task_id: str) -> "IngestTask | None":
+        """Mark an ingest task as failed."""
+        from improv.oltp.queries import fail_ingest_task
+        task = fail_ingest_task(
+            self._session, task_id,
+            completed_at=datetime.now(tz=timezone.utc),
+        )
+        if task is not None:
+            self._session.commit()
+        return task
+
+    def get_ingest_task(self, task_id: str) -> "IngestTask | None":
+        from improv.oltp.queries import get_ingest_task
+        return get_ingest_task(self._session, task_id)
 
     # ------------------------------------------------------------------
     # Binary products

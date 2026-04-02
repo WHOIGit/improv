@@ -158,3 +158,65 @@ def test_register_samples_batch(improv_client):
     registered, skipped = improv_client.register_samples_batch(samples)
     assert registered == 0
     assert skipped == 3
+
+
+# ------------------------------------------------------------------
+# Ingest Tasks
+# ------------------------------------------------------------------
+
+
+def test_register_ingest_task(improv_client):
+    task, created = improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    assert created is True
+    assert task["task_id"] == "D20240115T120000_IFCB014"
+    assert task["status"] == "pending"
+
+
+def test_register_ingest_task_idempotent(improv_client):
+    improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    task, created = improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    assert created is False
+    assert task["task_id"] == "D20240115T120000_IFCB014"
+
+
+def test_complete_ingest_task(improv_client):
+    improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    task = improv_client.complete_ingest_task("D20240115T120000_IFCB014")
+    assert task["status"] == "complete"
+    assert task["completed_at"] is not None
+
+
+def test_fail_ingest_task(improv_client):
+    improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    task = improv_client.fail_ingest_task("D20240115T120000_IFCB014")
+    assert task["status"] == "failed"
+    assert task["completed_at"] is not None
+
+
+def test_get_ingest_task(improv_client):
+    improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    task = improv_client.get_ingest_task("D20240115T120000_IFCB014")
+    assert task is not None
+    assert task["status"] == "pending"
+
+
+def test_get_ingest_task_not_found(improv_client):
+    assert improv_client.get_ingest_task("NONEXISTENT") is None

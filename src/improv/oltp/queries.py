@@ -7,7 +7,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from improv.oltp.models import Dataset, DatasetSpan, Instrument, Sample
+from improv.oltp.models import Dataset, DatasetSpan, IngestTask, Instrument, Sample
 
 
 # ---------------------------------------------------------------------------
@@ -165,3 +165,62 @@ def resolve_dataset_to_filters(
         }
         for span in spans
     ]
+
+
+# ---------------------------------------------------------------------------
+# Ingest Task
+# ---------------------------------------------------------------------------
+
+def get_ingest_task(session: Session, task_id: str) -> IngestTask | None:
+    return session.get(IngestTask, task_id)
+
+
+def register_ingest_task(
+    session: Session,
+    task_id: str,
+    instrument: str,
+    created_at: datetime,
+) -> IngestTask:
+    """Create a new ingest task in pending status, or return existing."""
+    existing = session.get(IngestTask, task_id)
+    if existing is not None:
+        return existing
+    task = IngestTask(
+        task_id=task_id,
+        instrument=instrument,
+        status="pending",
+        created_at=created_at,
+    )
+    session.add(task)
+    session.flush()
+    return task
+
+
+def complete_ingest_task(
+    session: Session,
+    task_id: str,
+    completed_at: datetime,
+) -> IngestTask | None:
+    """Mark an ingest task as complete. Returns None if not found."""
+    task = session.get(IngestTask, task_id)
+    if task is None:
+        return None
+    task.status = "complete"
+    task.completed_at = completed_at
+    session.flush()
+    return task
+
+
+def fail_ingest_task(
+    session: Session,
+    task_id: str,
+    completed_at: datetime,
+) -> IngestTask | None:
+    """Mark an ingest task as failed. Returns None if not found."""
+    task = session.get(IngestTask, task_id)
+    if task is None:
+        return None
+    task.status = "failed"
+    task.completed_at = completed_at
+    session.flush()
+    return task

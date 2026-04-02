@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models for the OLTP store.
 
-Four tables: Instrument, Sample, Dataset, DatasetSpan.
+Five tables: Instrument, Sample, Dataset, DatasetSpan, IngestTask.
 No per-image rows here — images live in the columnar store.
 
 Sample.meta maps to the 'metadata' column (JSON/JSONB). The Python attribute
@@ -122,3 +122,31 @@ class DatasetSpan(Base):
             f"<DatasetSpan instrument={self.instrument!r} "
             f"{self.time_start}–{self.time_end}>"
         )
+
+
+class IngestTask(Base):
+    """Tracks a unit of ingest work for idempotency and failure recovery.
+
+    The task_id is producer-defined: a bin ID for IFCB, a filename or time
+    window for continuous instruments, etc. The (task_id, instrument) pair
+    is unique — the same task_id can exist for different instruments.
+
+    Status transitions: pending → complete, or pending → failed.
+    """
+
+    __tablename__ = "ingest_tasks"
+
+    task_id: Mapped[str] = mapped_column(String, primary_key=True)
+    instrument: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="pending"
+    )  # pending | complete | failed
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    def __repr__(self) -> str:
+        return f"<IngestTask {self.task_id!r} status={self.status!r}>"
