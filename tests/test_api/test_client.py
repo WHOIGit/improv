@@ -1,0 +1,160 @@
+"""Tests for the thin HTTP ingest client."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+
+from improv.client import ImprovClient
+
+
+DEPLOY_START = datetime(2022, 1, 1, tzinfo=timezone.utc)
+TS_START = datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc)
+TS_END = datetime(2024, 1, 15, 12, 30, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def improv_client(client):
+    """Wrap the FastAPI TestClient in an ImprovClient."""
+    return ImprovClient(base_url="http://testserver", _client=client)
+
+
+# ------------------------------------------------------------------
+# Instruments
+# ------------------------------------------------------------------
+
+
+def test_register_instrument(improv_client):
+    instrument, created = improv_client.register_instrument(
+        name="ALPHA",
+        type="TestCam",
+        deployment_start=DEPLOY_START,
+        serial_number="001",
+    )
+    assert created is True
+    assert instrument["name"] == "ALPHA"
+    assert instrument["type"] == "TestCam"
+    assert instrument["serial_number"] == "001"
+
+
+def test_register_instrument_idempotent(improv_client):
+    improv_client.register_instrument(
+        name="ALPHA",
+        type="TestCam",
+        deployment_start=DEPLOY_START,
+    )
+    instrument, created = improv_client.register_instrument(
+        name="ALPHA",
+        type="TestCam",
+        deployment_start=DEPLOY_START,
+    )
+    assert created is False
+    assert instrument["name"] == "ALPHA"
+
+
+def test_get_instrument(improv_client):
+    improv_client.register_instrument(
+        name="ALPHA",
+        type="TestCam",
+        deployment_start=DEPLOY_START,
+    )
+    instrument = improv_client.get_instrument("ALPHA")
+    assert instrument is not None
+    assert instrument["name"] == "ALPHA"
+
+
+def test_get_instrument_not_found(improv_client):
+    assert improv_client.get_instrument("NONEXISTENT") is None
+
+
+# ------------------------------------------------------------------
+# Samples
+# ------------------------------------------------------------------
+
+
+def test_register_sample(improv_client):
+    improv_client.register_instrument(
+        name="ALPHA",
+        type="TestCam",
+        deployment_start=DEPLOY_START,
+    )
+    sample, created = improv_client.register_sample(
+        sample_id="BIN_001",
+        instrument="ALPHA",
+        time_start=TS_START,
+        time_end=TS_END,
+        metadata={"volume_ml": 5.0},
+    )
+    assert created is True
+    assert sample["sample_id"] == "BIN_001"
+    assert sample["instrument"] == "ALPHA"
+    assert sample["metadata"]["volume_ml"] == 5.0
+
+
+def test_register_sample_idempotent(improv_client):
+    improv_client.register_instrument(
+        name="ALPHA",
+        type="TestCam",
+        deployment_start=DEPLOY_START,
+    )
+    improv_client.register_sample(
+        sample_id="BIN_001",
+        instrument="ALPHA",
+        time_start=TS_START,
+        time_end=TS_END,
+    )
+    sample, created = improv_client.register_sample(
+        sample_id="BIN_001",
+        instrument="ALPHA",
+        time_start=TS_START,
+        time_end=TS_END,
+    )
+    assert created is False
+    assert sample["sample_id"] == "BIN_001"
+
+
+def test_get_sample(improv_client):
+    improv_client.register_instrument(
+        name="ALPHA",
+        type="TestCam",
+        deployment_start=DEPLOY_START,
+    )
+    improv_client.register_sample(
+        sample_id="BIN_001",
+        instrument="ALPHA",
+        time_start=TS_START,
+        time_end=TS_END,
+    )
+    sample = improv_client.get_sample("BIN_001")
+    assert sample is not None
+    assert sample["sample_id"] == "BIN_001"
+
+
+def test_get_sample_not_found(improv_client):
+    assert improv_client.get_sample("NONEXISTENT") is None
+
+
+def test_register_samples_batch(improv_client):
+    improv_client.register_instrument(
+        name="ALPHA",
+        type="TestCam",
+        deployment_start=DEPLOY_START,
+    )
+    samples = [
+        {
+            "sample_id": f"BIN_{i:03d}",
+            "instrument": "ALPHA",
+            "time_start": TS_START.isoformat(),
+            "time_end": TS_END.isoformat(),
+        }
+        for i in range(1, 4)
+    ]
+    registered, skipped = improv_client.register_samples_batch(samples)
+    assert registered == 3
+    assert skipped == 0
+
+    # Re-register — all should be skipped
+    registered, skipped = improv_client.register_samples_batch(samples)
+    assert registered == 0
+    assert skipped == 3
