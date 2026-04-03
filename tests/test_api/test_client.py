@@ -196,7 +196,7 @@ def test_complete_ingest_task(improv_client):
     )
     task = improv_client.complete_ingest_task("D20240115T120000_IFCB014")
     assert task["status"] == "complete"
-    assert task["completed_at"] is not None
+    assert task["updated_at"] is not None
 
 
 def test_fail_ingest_task(improv_client):
@@ -206,7 +206,46 @@ def test_fail_ingest_task(improv_client):
     )
     task = improv_client.fail_ingest_task("D20240115T120000_IFCB014")
     assert task["status"] == "failed"
-    assert task["completed_at"] is not None
+    assert task["updated_at"] is not None
+
+
+def test_pending_heartbeat(improv_client):
+    task, _ = improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    original_updated = task["updated_at"]
+    updated = improv_client.update_ingest_task("D20240115T120000_IFCB014", "pending")
+    assert updated["status"] == "pending"
+    assert updated["updated_at"] >= original_updated
+
+
+def test_delete_ingest_task(improv_client):
+    improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    assert improv_client.delete_ingest_task("D20240115T120000_IFCB014") is True
+    assert improv_client.get_ingest_task("D20240115T120000_IFCB014") is None
+
+
+def test_delete_ingest_task_not_found(improv_client):
+    assert improv_client.delete_ingest_task("NONEXISTENT") is False
+
+
+def test_delete_and_reregister(improv_client):
+    improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    improv_client.fail_ingest_task("D20240115T120000_IFCB014")
+    improv_client.delete_ingest_task("D20240115T120000_IFCB014")
+    task, created = improv_client.register_ingest_task(
+        task_id="D20240115T120000_IFCB014",
+        instrument="ALPHA",
+    )
+    assert created is True
+    assert task["status"] == "pending"
 
 
 def test_get_ingest_task(improv_client):

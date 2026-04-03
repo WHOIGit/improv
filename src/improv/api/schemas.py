@@ -166,4 +166,4 @@ class IngestTaskResponse(BaseModel):
     instrument: str | None
     status: str
     created_at: datetime
-    completed_at: datetime | None
+    updated_at: datetime

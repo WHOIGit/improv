@@ -179,7 +179,7 @@ def register_ingest_task(
     session: Session,
     task_id: str,
     instrument: str | None,
-    created_at: datetime,
+    now: datetime,
 ) -> IngestTask:
     """Create a new ingest task in pending status, or return existing."""
     existing = session.get(IngestTask, task_id)
@@ -189,38 +189,39 @@ def register_ingest_task(
         task_id=task_id,
         instrument=instrument,
         status="pending",
-        created_at=created_at,
+        created_at=now,
+        updated_at=now,
     )
     session.add(task)
     session.flush()
     return task
 
 
-def complete_ingest_task(
+def update_ingest_task(
     session: Session,
     task_id: str,
-    completed_at: datetime,
+    status: str,
+    now: datetime,
 ) -> IngestTask | None:
-    """Mark an ingest task as complete. Returns None if not found."""
+    """Update an ingest task's status and updated_at timestamp.
+
+    Valid statuses: pending, complete, failed.
+    Returns None if not found.
+    """
     task = session.get(IngestTask, task_id)
     if task is None:
         return None
-    task.status = "complete"
-    task.completed_at = completed_at
+    task.status = status
+    task.updated_at = now
     session.flush()
     return task
 
 
-def fail_ingest_task(
-    session: Session,
-    task_id: str,
-    completed_at: datetime,
-) -> IngestTask | None:
-    """Mark an ingest task as failed. Returns None if not found."""
+def delete_ingest_task(session: Session, task_id: str) -> bool:
+    """Delete an ingest task. Returns True if deleted, False if not found."""
     task = session.get(IngestTask, task_id)
     if task is None:
-        return None
-    task.status = "failed"
-    task.completed_at = completed_at
+        return False
+    session.delete(task)
     session.flush()
-    return task
+    return True

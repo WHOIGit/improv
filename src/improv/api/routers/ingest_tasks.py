@@ -10,6 +10,8 @@ from improv.service import ImageService
 
 router = APIRouter(prefix="/ingest-tasks", tags=["ingest-tasks"])
 
+VALID_STATUSES = {"pending", "complete", "failed"}
+
 
 def _task_response(task) -> IngestTaskResponse:
     return IngestTaskResponse(
@@ -17,7 +19,7 @@ def _task_response(task) -> IngestTaskResponse:
         instrument=task.instrument,
         status=task.status,
         created_at=task.created_at,
-        completed_at=task.completed_at,
+        updated_at=task.updated_at,
     )
 
 
@@ -55,15 +57,22 @@ def update_ingest_task(
     body: IngestTaskUpdate,
     service: ImageService = Depends(get_service),
 ) -> IngestTaskResponse:
-    if body.status == "complete":
-        task = service.complete_ingest_task(task_id)
-    elif body.status == "failed":
-        task = service.fail_ingest_task(task_id)
-    else:
+    if body.status not in VALID_STATUSES:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid status {body.status!r}. Must be 'complete' or 'failed'.",
+            detail=f"Invalid status {body.status!r}. Must be one of: {', '.join(sorted(VALID_STATUSES))}.",
         )
+    task = service.update_ingest_task(task_id, body.status)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Ingest task {task_id!r} not found.")
     return _task_response(task)
+
+
+@router.delete("/{task_id}", status_code=204)
+def delete_ingest_task(
+    task_id: str,
+    service: ImageService = Depends(get_service),
+) -> None:
+    deleted = service.delete_ingest_task(task_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Ingest task {task_id!r} not found.")

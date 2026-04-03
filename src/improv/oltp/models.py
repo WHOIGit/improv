@@ -131,7 +131,9 @@ class IngestTask(Base):
     window for continuous instruments, etc. The producer chooses whatever
     granularity makes sense for its work units.
 
-    Status transitions: pending → complete, or pending → failed.
+    Status transitions: pending → pending (heartbeat), pending → complete,
+    pending → failed. Clients can DELETE tasks to allow re-registration
+    after cleanup.
     """
 
     __tablename__ = "ingest_tasks"
@@ -144,8 +146,8 @@ class IngestTask(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
 
     def __repr__(self) -> str:

@@ -178,23 +178,30 @@ class ImprovClient:
         resp.raise_for_status()
         return resp.json(), True
 
-    def complete_ingest_task(self, task_id: str) -> dict:
-        """Mark an ingest task as complete."""
+    def update_ingest_task(self, task_id: str, status: str) -> dict:
+        """Update an ingest task's status. Valid: pending, complete, failed."""
         resp = self._client.patch(
             f"/ingest-tasks/{task_id}",
-            json={"status": "complete"},
+            json={"status": status},
         )
         resp.raise_for_status()
         return resp.json()
 
+    def complete_ingest_task(self, task_id: str) -> dict:
+        """Mark an ingest task as complete."""
+        return self.update_ingest_task(task_id, "complete")
+
     def fail_ingest_task(self, task_id: str) -> dict:
         """Mark an ingest task as failed."""
-        resp = self._client.patch(
-            f"/ingest-tasks/{task_id}",
-            json={"status": "failed"},
-        )
+        return self.update_ingest_task(task_id, "failed")
+
+    def delete_ingest_task(self, task_id: str) -> bool:
+        """Delete an ingest task. Returns True if deleted, False if not found."""
+        resp = self._client.delete(f"/ingest-tasks/{task_id}")
+        if resp.status_code == 404:
+            return False
         resp.raise_for_status()
-        return resp.json()
+        return True
 
     def get_ingest_task(self, task_id: str) -> dict | None:
         """Get an ingest task by ID. Returns None if not found."""

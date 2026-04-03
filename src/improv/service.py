@@ -393,32 +393,29 @@ class ImageService:
             return existing, False
         task = register_ingest_task(
             self._session, task_id, instrument,
-            created_at=datetime.now(tz=timezone.utc),
+            now=datetime.now(tz=timezone.utc),
         )
         self._session.commit()
         return task, True
 
-    def complete_ingest_task(self, task_id: str) -> "IngestTask | None":
-        """Mark an ingest task as complete."""
-        from improv.oltp.queries import complete_ingest_task
-        task = complete_ingest_task(
-            self._session, task_id,
-            completed_at=datetime.now(tz=timezone.utc),
+    def update_ingest_task(self, task_id: str, status: str) -> "IngestTask | None":
+        """Update an ingest task's status. Valid: pending, complete, failed."""
+        from improv.oltp.queries import update_ingest_task
+        task = update_ingest_task(
+            self._session, task_id, status,
+            now=datetime.now(tz=timezone.utc),
         )
         if task is not None:
             self._session.commit()
         return task
 
-    def fail_ingest_task(self, task_id: str) -> "IngestTask | None":
-        """Mark an ingest task as failed."""
-        from improv.oltp.queries import fail_ingest_task
-        task = fail_ingest_task(
-            self._session, task_id,
-            completed_at=datetime.now(tz=timezone.utc),
-        )
-        if task is not None:
+    def delete_ingest_task(self, task_id: str) -> bool:
+        """Delete an ingest task. Returns True if deleted."""
+        from improv.oltp.queries import delete_ingest_task
+        deleted = delete_ingest_task(self._session, task_id)
+        if deleted:
             self._session.commit()
-        return task
+        return deleted
 
     def get_ingest_task(self, task_id: str) -> "IngestTask | None":
         from improv.oltp.queries import get_ingest_task
