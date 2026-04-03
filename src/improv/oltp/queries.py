@@ -7,7 +7,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from improv.oltp.models import Dataset, DatasetSpan, Instrument, Sample
+from improv.oltp.models import Dataset, DatasetSpan, IngestTask, Instrument, Sample
 
 
 # ---------------------------------------------------------------------------
@@ -165,3 +165,63 @@ def resolve_dataset_to_filters(
         }
         for span in spans
     ]
+
+
+# ---------------------------------------------------------------------------
+# Ingest Task
+# ---------------------------------------------------------------------------
+
+def get_ingest_task(session: Session, task_id: str) -> IngestTask | None:
+    return session.get(IngestTask, task_id)
+
+
+def register_ingest_task(
+    session: Session,
+    task_id: str,
+    instrument: str | None,
+    now: datetime,
+) -> IngestTask:
+    """Create a new ingest task in pending status, or return existing."""
+    existing = session.get(IngestTask, task_id)
+    if existing is not None:
+        return existing
+    task = IngestTask(
+        task_id=task_id,
+        instrument=instrument,
+        status="pending",
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(task)
+    session.flush()
+    return task
+
+
+def update_ingest_task(
+    session: Session,
+    task_id: str,
+    status: str,
+    now: datetime,
+) -> IngestTask | None:
+    """Update an ingest task's status and updated_at timestamp.
+
+    Valid statuses: pending, complete, failed.
+    Returns None if not found.
+    """
+    task = session.get(IngestTask, task_id)
+    if task is None:
+        return None
+    task.status = status
+    task.updated_at = now
+    session.flush()
+    return task
+
+
+def delete_ingest_task(session: Session, task_id: str) -> bool:
+    """Delete an ingest task. Returns True if deleted, False if not found."""
+    task = session.get(IngestTask, task_id)
+    if task is None:
+        return False
+    session.delete(task)
+    session.flush()
+    return True

@@ -21,7 +21,7 @@ def create_app(config: "ImprovConfig") -> FastAPI:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    from improv.api.routers import blobs, datasets, images, instruments, provenance, samples
+    from improv.api.routers import blobs, datasets, images, ingest_tasks, instruments, provenance, samples
     from improv.oltp.models import Base
     from improv.service import ImageService
     from improv.store.tables import register_service_tables
@@ -58,5 +58,6 @@ def create_app(config: "ImprovConfig") -> FastAPI:
     app.include_router(samples.router)
     app.include_router(blobs.router)
     app.include_router(datasets.router)
+    app.include_router(ingest_tasks.router)
 
     return app

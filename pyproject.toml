@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0",
     "pyarrow>=14.0",
+    "httpx",
     "amplify-db-utils @ git+https://github.com/WHOIGit/amplify-db-utils.git",
     "amplify-storage-utils @ git+https://github.com/WHOIGit/amplify-storage-utils.git@v1.7.0",
 ]

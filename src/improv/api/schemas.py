@@ -146,3 +146,24 @@ class SampleResponse(BaseModel):
     alternate_sample_id: str | None
     storage_key: str | None
     metadata: dict
+
+
+# ---------------------------------------------------------------------------
+# Ingest Tasks
+# ---------------------------------------------------------------------------
+
+class IngestTaskCreate(BaseModel):
+    task_id: str
+    instrument: str | None = None
+
+
+class IngestTaskUpdate(BaseModel):
+    status: str  # "complete" or "failed"
+
+
+class IngestTaskResponse(BaseModel):
+    task_id: str
+    instrument: str | None
+    status: str
+    created_at: datetime
+    updated_at: datetime

@@ -19,7 +19,7 @@ Retrieval flows:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterator
 
 from improv.store.images import (
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from improv.ids import ImageIdParser
     from improv.models.image import ImageRecord
     from improv.models.provenance import ProvenanceEnvelope
-    from improv.oltp.models import Dataset, DatasetSpan, Instrument, Sample
+    from improv.oltp.models import Dataset, DatasetSpan, IngestTask, Instrument, Sample
     from improv.plugins import ProvenancePlugin
 
 
@@ -372,6 +372,54 @@ class ImageService:
     def get_dataset_spans(self, dataset_name: str) -> "list[DatasetSpan]":
         from improv.oltp.queries import get_dataset_spans
         return get_dataset_spans(self._session, dataset_name)
+
+    # ------------------------------------------------------------------
+    # Ingest tasks
+    # ------------------------------------------------------------------
+
+    def register_ingest_task(
+        self,
+        task_id: str,
+        instrument: str | None = None,
+    ) -> "tuple[IngestTask, bool]":
+        """Register an ingest task; return (task, created).
+
+        If the task already exists, returns (existing_task, False).
+        This is the idempotency gate for ingest scripts.
+        """
+        from improv.oltp.queries import get_ingest_task, register_ingest_task
+        existing = get_ingest_task(self._session, task_id)
+        if existing is not None:
+            return existing, False
+        task = register_ingest_task(
+            self._session, task_id, instrument,
+            now=datetime.now(tz=timezone.utc),
+        )
+        self._session.commit()
+        return task, True
+
+    def update_ingest_task(self, task_id: str, status: str) -> "IngestTask | None":
+        """Update an ingest task's status. Valid: pending, complete, failed."""
+        from improv.oltp.queries import update_ingest_task
+        task = update_ingest_task(
+            self._session, task_id, status,
+            now=datetime.now(tz=timezone.utc),
+        )
+        if task is not None:
+            self._session.commit()
+        return task
+
+    def delete_ingest_task(self, task_id: str) -> bool:
+        """Delete an ingest task. Returns True if deleted."""
+        from improv.oltp.queries import delete_ingest_task
+        deleted = delete_ingest_task(self._session, task_id)
+        if deleted:
+            self._session.commit()
+        return deleted
+
+    def get_ingest_task(self, task_id: str) -> "IngestTask | None":
+        from improv.oltp.queries import get_ingest_task
+        return get_ingest_task(self._session, task_id)
 
     # ------------------------------------------------------------------
     # Binary products
