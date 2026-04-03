@@ -154,7 +154,7 @@ class SampleResponse(BaseModel):
 
 class IngestTaskCreate(BaseModel):
     task_id: str
-    instrument: str
+    instrument: str | None = None
 
 
 class IngestTaskUpdate(BaseModel):
@@ -163,7 +163,7 @@ class IngestTaskUpdate(BaseModel):
 
 class IngestTaskResponse(BaseModel):
     task_id: str
-    instrument: str
+    instrument: str | None
     status: str
     created_at: datetime
     completed_at: datetime | None

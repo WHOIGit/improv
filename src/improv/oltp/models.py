@@ -128,8 +128,8 @@ class IngestTask(Base):
     """Tracks a unit of ingest work for idempotency and failure recovery.
 
     The task_id is producer-defined: a bin ID for IFCB, a filename or time
-    window for continuous instruments, etc. The (task_id, instrument) pair
-    is unique — the same task_id can exist for different instruments.
+    window for continuous instruments, etc. The producer chooses whatever
+    granularity makes sense for its work units.
 
     Status transitions: pending → complete, or pending → failed.
     """
@@ -137,7 +137,7 @@ class IngestTask(Base):
     __tablename__ = "ingest_tasks"
 
     task_id: Mapped[str] = mapped_column(String, primary_key=True)
-    instrument: Mapped[str] = mapped_column(String, nullable=False)
+    instrument: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(
         String, nullable=False, default="pending"
     )  # pending | complete | failed

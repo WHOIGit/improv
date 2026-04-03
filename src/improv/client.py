@@ -161,7 +161,7 @@ class ImprovClient:
     def register_ingest_task(
         self,
         task_id: str,
-        instrument: str,
+        instrument: str | None = None,
     ) -> tuple[dict, bool]:
         """Register an ingest task. Returns (task_dict, created).
 

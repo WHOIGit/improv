@@ -380,7 +380,7 @@ class ImageService:
     def register_ingest_task(
         self,
         task_id: str,
-        instrument: str,
+        instrument: str | None = None,
     ) -> "tuple[IngestTask, bool]":
         """Register an ingest task; return (task, created).
 

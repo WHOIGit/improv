@@ -178,7 +178,7 @@ def get_ingest_task(session: Session, task_id: str) -> IngestTask | None:
 def register_ingest_task(
     session: Session,
     task_id: str,
-    instrument: str,
+    instrument: str | None,
     created_at: datetime,
 ) -> IngestTask:
     """Create a new ingest task in pending status, or return existing."""

@@ -172,6 +172,7 @@ def test_register_ingest_task(improv_client):
     )
     assert created is True
     assert task["task_id"] == "D20240115T120000_IFCB014"
+    assert task["instrument"] == "ALPHA"
     assert task["status"] == "pending"
 
 
