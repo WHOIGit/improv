@@ -59,6 +59,7 @@ from improv.plugins.ifcb_features import (
     IFCBFeaturesPlugin,
     IFCBFeaturesRecord,
 )
+from improv.plugins.ifcb_id import IFCBImageIdParser
 from improv.plugins.sample_context import SampleContextPlugin, SampleIndexRecord
 
 __all__ = [
@@ -77,5 +78,6 @@ __all__ = [
     "GeoLocationPlugin",
     "GeoLocationIndexRecord",
     "SampleContextPlugin",
+    "IFCBImageIdParser",
     "SampleIndexRecord",
 ]
