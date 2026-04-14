@@ -34,10 +34,10 @@ class IFCBFeaturesIndexRecord(BaseModel):
     run_id: str
     model_version: str
     # ifcb-features v2 scalar columns (FEATURE_COLUMNS in extract_slim_features.py)
-    Area: float | None = None
+    Area: int | None = None
     Biovolume: float | None = None
-    BoundingBox_xwidth: float | None = None
-    BoundingBox_ywidth: float | None = None
+    BoundingBox_xwidth: int | None = None
+    BoundingBox_ywidth: int | None = None
     ConvexArea: float | None = None
     ConvexPerimeter: float | None = None
     Eccentricity: float | None = None
@@ -52,8 +52,8 @@ class IFCBFeaturesIndexRecord(BaseModel):
     SurfaceArea: float | None = None
     maxFeretDiameter: float | None = None
     minFeretDiameter: float | None = None
-    numBlobs: float | None = None
-    summedArea: float | None = None
+    numBlobs: int | None = None
+    summedArea: int | None = None
     summedBiovolume: float | None = None
     summedConvexArea: float | None = None
     summedConvexPerimeter: float | None = None
