@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from amplify_db_utils import DuckDBParquetConfig
+from amplify_db_utils.vastdb_store import VastDBConfig
 
 if TYPE_CHECKING:
     from improv.ids import ImageIdParser
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
 @dataclass
 class ImprovConfig:
     # Columnar store — required
-    db_config: DuckDBParquetConfig
+    db_config: DuckDBParquetConfig | VastDBConfig
 
     # OLTP database — required for service mode; omit for batch-producer use
     database_url: str | None = None
@@ -45,19 +46,28 @@ class ImprovConfig:
 
 def load_config() -> ImprovConfig:
     """Build ImprovConfig from environment variables."""
+    backend = os.environ.get("IMPROV_DB_BACKEND", "duckdb").lower()
     db_root = os.environ.get("IMPROV_DB_ROOT")
-    if not db_root:
-        raise RuntimeError(
-            "IMPROV_DB_ROOT environment variable is required. "
-            "Set it to a local path or s3:// URL."
+    
+    if backend == "vastdb":
+        db_cfg = VastDBConfig(
+            endpoint=os.environ["IMPROV_VASTDB_ENDPOINT"],
+            access_key=os.environ["IMPROV_VASTDB_ACCESS_KEY"],
+            secret_key=os.environ["IMPROV_VASTDB_SECRET_KEY"],
+            bucket=os.environ["IMPROV_VASTDB_BUCKET"],
+            schema=os.environ["IMPROV_VASTDB_SCHEMA"],
+            add_written_at=True,
         )
-
-    db_cfg = DuckDBParquetConfig(
-        root=db_root,
-        s3_endpoint=os.environ.get("IMPROV_S3_ENDPOINT"),
-        s3_access_key=os.environ.get("IMPROV_S3_ACCESS_KEY"),
-        s3_secret_key=os.environ.get("IMPROV_S3_SECRET_KEY"),
-    )
+    elif backend == "duckdb":
+        db_root = os.environ.get("IMPROV_DB_ROOT")
+        if not db_root:
+            raise RuntimeError("IMPROV_DB_ROOT required for duckdb backend.")
+        db_cfg = DuckDBParquetConfig(
+            root=db_root,
+            s3_endpoint=os.environ.get("IMPROV_S3_ENDPOINT"),
+            s3_access_key=os.environ.get("IMPROV_S3_ACCESS_KEY"),
+            s3_secret_key=os.environ.get("IMPROV_S3_SECRET_KEY"),
+        )
 
     storage = None
     storage_path = os.environ.get("IMPROV_STORAGE_PATH")

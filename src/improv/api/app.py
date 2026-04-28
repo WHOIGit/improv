@@ -17,7 +17,8 @@ def create_app(config: "ImprovConfig") -> FastAPI:
     Registers service tables at startup via lifespan, injects ImageService
     via app.state for use in route dependencies.
     """
-    from amplify_db_utils import DuckDBParquetStore
+    from amplify_db_utils import DuckDBParquetStore, DuckDBParquetConfig
+    from amplify_db_utils.vastdb_store import VastDBConfig, VastDBStore
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -28,7 +29,14 @@ def create_app(config: "ImprovConfig") -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        store = DuckDBParquetStore(config.db_config)
+        if isinstance(config.db_config, VastDBConfig):
+            store = VastDBStore(config.db_config)
+        elif isinstance(config.db_config, DuckDBParquetConfig):
+            store = DuckDBParquetStore(config.db_config)
+        else:
+            raise RuntimeError(
+                f"Unsupported db_config type: {type(config.db_config).__name__}"
+            )
         engine = create_engine(config.database_url or "sqlite:///:memory:")
         Base.metadata.create_all(engine)
         Session = sessionmaker(bind=engine)
