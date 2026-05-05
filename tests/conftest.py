@@ -16,6 +16,16 @@ from improv.plugins.sample_context import SampleContextPlugin
 from improv.service import ImageService
 from improv.store.tables import register_service_tables
 
+import os
+import uuid
+import pytest
+
+from amplify_db_utils import DuckDBParquetConfig, DuckDBParquetStore
+from amplify_db_utils.vastdb_store import VastDBConfig, VastDBStore
+
+_BACKENDS = ["duckdb"]
+if os.environ.get("IMPROV_TEST_VASTDB") == "1":
+    _BACKENDS.append("vastdb")
 
 # ---------------------------------------------------------------------------
 # Synthetic parsers for tests — no real instrument format assumed
@@ -72,10 +82,27 @@ def parsers(alpha_parser, beta_parser) -> list:
 # Columnar store
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def store(tmp_path):
-    config = DuckDBParquetConfig(root=str(tmp_path / "store"))
-    return DuckDBParquetStore(config)
+@pytest.fixture(params=_BACKENDS)
+def store(request, tmp_path):
+    if request.param == "duckdb":
+        cfg = DuckDBParquetConfig(root=str(tmp_path / "store"))
+        yield DuckDBParquetStore(cfg)
+        return
+
+    # VastDB: per-test unique schema for isolation, torn down after.
+    cfg = VastDBConfig(
+        endpoint=os.environ["IMPROV_TEST_VASTDB_ENDPOINT"],
+        access_key=os.environ["IMPROV_TEST_VASTDB_ACCESS_KEY"],
+        secret_key=os.environ["IMPROV_TEST_VASTDB_SECRET_KEY"],
+        bucket=os.environ["IMPROV_TEST_VASTDB_BUCKET"],
+        schema=f"improv_test_{uuid.uuid4().hex[:8]}",
+        add_written_at=True,
+    )
+    s = VastDBStore(cfg)
+    try:
+        yield s
+    finally:
+        s.drop_schema()
 
 
 @pytest.fixture
