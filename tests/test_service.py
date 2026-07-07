@@ -255,3 +255,27 @@ def test_get_blob_key_none_when_no_blob(service):
     record = alpha_record("001")
     service.ingest_images([record])
     assert service.get_blob_key(record.image_id) is None
+
+
+def test_batch_provenance_writes_one_index_call_per_table(service, monkeypatch):
+    """A batch of N same-kind records → one batched index write, not N."""
+    recs = [alpha_record(f"00{i}") for i in range(1, 4)]
+    service.ingest_images(recs)
+    envs = [
+        geo_envelope(r.image_id, lat=41.0 + i * 0.1, lon=-70.0)
+        for i, r in enumerate(recs)
+    ]
+
+    calls: list[tuple[str, int]] = []
+    orig = service._store.write
+
+    def spy(table, records, *args, **kwargs):
+        calls.append((table, len(records)))
+        return orig(table, records, *args, **kwargs)
+
+    monkeypatch.setattr(service._store, "write", spy)
+    service.ingest_provenance(envs)
+
+    assert ("provenance", 3) in calls
+    # geolocation_index written once with all 3 rows, not three single-row writes
+    assert [c for c in calls if c[0] == "geolocation_index"] == [("geolocation_index", 3)]

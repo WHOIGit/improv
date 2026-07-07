@@ -59,6 +59,12 @@ class ProvenancePlugin(Protocol):
 # service discovers these capabilities structurally (isinstance against the
 # runtime-checkable protocol) rather than importing concrete plugin classes,
 # so the read path stays decoupled from any specific plugin.
+#
+# IDEMPOTENCY CONTRACT: index tables are append-only, so a retried write
+# re-appends rows. Every query implementation MUST deduplicate rows read from
+# its index table before returning, via ``improv.store.dedup.dedup_rows`` —
+# otherwise retries surface as duplicate results. See GeoLocationPlugin.
+# query_spatial / SampleContextPlugin.query_by_sample_id for the pattern.
 # ---------------------------------------------------------------------------
 
 @runtime_checkable

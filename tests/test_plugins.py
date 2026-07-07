@@ -198,3 +198,61 @@ def test_ifcb_cnn_preset_backcompat():
     assert plugin.index_table == "ifcb_cnn_classification_index"
     assert IFCBCNNClassificationIndexRecord is MachineClassificationIndexRecord
     assert isinstance(plugin, MachineClassificationPlugin)
+
+
+# ---------------------------------------------------------------------------
+# Index idempotency — retries collapse at read (matches provenance dedup)
+# ---------------------------------------------------------------------------
+
+def _geo_index_record(source="nav_v1", version="1.0"):
+    return GeoLocationIndexRecord(
+        image_id="ALPHA_20240115T120000_001",
+        lat=41.5,
+        lon=-70.5,
+        source=source,
+        version=version,
+        computed_at=datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc),
+        instrument="ALPHA",
+        year=2024,
+        month=1,
+    )
+
+
+def test_geolocation_query_dedups_retries(store):
+    plugin = GeoLocationPlugin()
+    plugin.create_index(store)
+    rec = _geo_index_record()
+    plugin.write_index(store, [rec])
+    plugin.write_index(store, [rec])  # retry re-appends an identical row
+
+    ids = plugin.query_spatial(store, 40.0, 42.0, -71.0, -70.0)
+    assert ids == ["ALPHA_20240115T120000_001"]
+
+
+def test_geolocation_query_keeps_distinct_rows(store):
+    """Rows differing in any column (e.g. source/version) are distinct facts."""
+    plugin = GeoLocationPlugin()
+    plugin.create_index(store)
+    plugin.write_index(store, [_geo_index_record(source="nav_v1", version="1.0")])
+    plugin.write_index(store, [_geo_index_record(source="nav_v2", version="2.0")])
+
+    ids = plugin.query_spatial(store, 40.0, 42.0, -71.0, -70.0)
+    assert len(ids) == 2  # both retained; not collapsed
+
+
+def test_sample_context_query_dedups_retries(store):
+    plugin = SampleContextPlugin()
+    plugin.create_index(store)
+    rec = SampleIndexRecord(
+        image_id="ALPHA_20240115T120000_001",
+        sample_id="SAMPLE_001",
+        source="ifcb_system",
+        instrument="ALPHA",
+        year=2024,
+        month=1,
+    )
+    plugin.write_index(store, [rec])
+    plugin.write_index(store, [rec])  # retry
+
+    ids = plugin.query_by_sample_id(store, "SAMPLE_001")
+    assert ids == ["ALPHA_20240115T120000_001"]

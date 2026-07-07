@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from improv.store.dedup import dedup_rows
+
 if TYPE_CHECKING:
     from amplify_db_utils import ColumnarStore
     from improv.models.provenance import ProvenanceEnvelope
@@ -81,7 +83,5 @@ class SampleContextPlugin:
         filters: dict = {"sample_id": sample_id}
         if source is not None:
             filters["source"] = source
-        return [
-            row["image_id"]
-            for row in store.read(self.index_table, filters=filters)
-        ]
+        rows = dedup_rows(store.read(self.index_table, filters=filters))
+        return [row["image_id"] for row in rows]

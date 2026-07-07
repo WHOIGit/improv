@@ -19,6 +19,7 @@ Retrieval flows:
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterator
 
@@ -125,11 +126,14 @@ class ImageService:
         before writing, so that plugin index records have consistent keys.
 
         For each record, if a registered plugin handles its kind, calls
-        extract_index_record and writes the result to the plugin's index table.
-        Records with no registered plugin are stored with no index write.
+        extract_index_record and collects the result. Index records are grouped
+        by target table and written with one batched store.write per table, so a
+        batch of N provenance records costs 1 + (number of distinct index
+        tables) writes rather than 1 + N.  Records with no registered plugin are
+        stored with no index write.
 
-        Pass ``write_indexes=False`` to skip per-record index writes entirely.
-        Batch producers should do so and perform their own batched store.write.
+        Pass ``write_indexes=False`` to skip index writes entirely. Batch
+        producers may do so and perform their own batched store.write.
         """
         enriched = self.enrich_envelopes(records)
 
@@ -138,13 +142,20 @@ class ImageService:
         if not write_indexes:
             return
 
+        # Collect all index records first (extraction may raise on bad input,
+        # e.g. an out-of-range winner_index), then write each table's batch in
+        # one call. Grouping by table also merges any plugins that share one.
+        index_batches: dict[str, list[dict]] = defaultdict(list)
         for envelope in enriched:
             plugin = self._plugins.get(envelope.kind)
             if plugin is None:
                 continue
             index_record = plugin.extract_index_record(envelope)
             if index_record is not None and plugin.index_table is not None:
-                self._store.write(plugin.index_table, [index_record])
+                index_batches[plugin.index_table].append(index_record)
+
+        for table, index_records in index_batches.items():
+            self._store.write(table, index_records)
 
     # ------------------------------------------------------------------
     # Retrieval
