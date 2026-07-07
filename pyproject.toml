@@ -21,11 +21,9 @@ db = [
     "sqlalchemy>=2.0",
     "psycopg2-binary",
 ]
-# IFCB-specific plugins (improv.plugins.ifcb). The modules ship with the core
-# distribution but are never imported at core load time; this extra is the seam
-# for IFCB-specific third-party dependencies (e.g. a future ifcb-features port).
-# None are required today.
-ifcb = []
+vastdb = [
+    "amplify-db-utils[vastdb] @ git+https://github.com/WHOIGit/amplify-db-utils.git",
+]
 service = [
     "fastapi",
     "uvicorn[standard]",
