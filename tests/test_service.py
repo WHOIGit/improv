@@ -83,8 +83,8 @@ def test_ingest_provenance_plugin_dual_write(service, store_with_tables):
     env = geo_envelope(record.image_id, lat=41.5, lon=-70.5)
     service.ingest_provenance([env])
 
-    from improv.store.indexes import query_spatial
-    ids = query_spatial(store_with_tables, 41.0, 42.0, -71.0, -70.0)
+    from improv.plugins.geolocation import GeoLocationPlugin
+    ids = GeoLocationPlugin().query_spatial(store_with_tables, 41.0, 42.0, -71.0, -70.0)
     assert record.image_id in ids
 
 
@@ -168,6 +168,65 @@ def test_get_dataset_images(service, session):
     ids = [img.image_id for img in images]
     assert r1.image_id in ids
     assert r2.image_id not in ids
+
+
+# ---------------------------------------------------------------------------
+# Classifier taxonomy (label-map)
+# ---------------------------------------------------------------------------
+
+def test_register_classifier_taxonomy_idempotent(service):
+    tax, created = service.register_classifier_taxonomy(
+        "ifcb_cnn_classification", "v4", ["Ceratium", "Chaetoceros"]
+    )
+    assert created is True
+    assert tax.class_names == ["Ceratium", "Chaetoceros"]
+
+    again, created2 = service.register_classifier_taxonomy(
+        "ifcb_cnn_classification", "v4", ["ignored"]
+    )
+    assert created2 is False
+    assert again.taxonomy_id == tax.taxonomy_id
+    assert again.class_names == ["Ceratium", "Chaetoceros"]  # unchanged
+
+
+def test_get_classifier_taxonomy_exact_version(service):
+    service.register_classifier_taxonomy("clf", "v1", ["A", "B"])
+    service.register_classifier_taxonomy("clf", "v2", ["A", "B", "C"])
+
+    v1 = service.get_classifier_taxonomy("clf", "v1")
+    v2 = service.get_classifier_taxonomy("clf", "v2")
+    assert v1.class_names == ["A", "B"]
+    assert v2.class_names == ["A", "B", "C"]
+    assert service.get_classifier_taxonomy("clf", "missing") is None
+
+
+def test_get_latest_classifier_taxonomy(service):
+    service.register_classifier_taxonomy("clf", "v1", ["A"])
+    service.register_classifier_taxonomy("clf", "v2", ["A", "B"])
+    latest = service.get_latest_classifier_taxonomy("clf")
+    assert latest.model_version == "v2"
+
+
+def test_decode_classification_roundtrip(service):
+    service.register_classifier_taxonomy(
+        "ifcb_cnn_classification", "v4", ["Ceratium", "Chaetoceros", "Dinophysis"]
+    )
+    decoded = service.decode_classification(
+        "ifcb_cnn_classification", "v4", [0.1, 0.7, 0.2], winner_index=1
+    )
+    assert decoded["winner"] == "Chaetoceros"
+    assert decoded["scores"] == {"Ceratium": 0.1, "Chaetoceros": 0.7, "Dinophysis": 0.2}
+
+
+def test_decode_classification_unknown_version(service):
+    with pytest.raises(ValueError):
+        service.decode_classification("clf", "nope", [0.5, 0.5], winner_index=0)
+
+
+def test_decode_classification_length_mismatch(service):
+    service.register_classifier_taxonomy("clf", "v1", ["A", "B"])
+    with pytest.raises(ValueError):
+        service.decode_classification("clf", "v1", [0.5, 0.3, 0.2], winner_index=0)
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pytest
 
 from improv.ids import make_partition_keys
-from improv.plugins.ifcb_id import IFCBImageIdParser
+from improv.plugins.ifcb import IFCBImageIdParser
 
 
 @pytest.fixture

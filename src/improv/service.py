@@ -22,13 +22,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterator
 
+from improv.plugins import SpatialQueryPlugin
 from improv.store.images import (
     bulk_get_images,
     get_image,
     get_images,
     write_images,
 )
-from improv.store.indexes import get_images_by_sample_id, query_spatial
 from improv.store.provenance import (
     get_provenance,
     get_provenance_by_kind,
@@ -44,7 +44,14 @@ if TYPE_CHECKING:
     from improv.ids import ImageIdParser
     from improv.models.image import ImageRecord
     from improv.models.provenance import ProvenanceEnvelope
-    from improv.oltp.models import Dataset, DatasetSpan, IngestTask, Instrument, Sample
+    from improv.oltp.models import (
+        ClassifierTaxonomy,
+        Dataset,
+        DatasetSpan,
+        IngestTask,
+        Instrument,
+        Sample,
+    )
     from improv.plugins import ProvenancePlugin
 
 
@@ -162,6 +169,13 @@ class ImageService:
             )
         return get_provenance(self._store, image_id, self._parsers, instrument)
 
+    def _spatial_plugin(self) -> "SpatialQueryPlugin | None":
+        """Return the first registered plugin advertising the spatial query capability."""
+        for plugin in self._plugins.values():
+            if isinstance(plugin, SpatialQueryPlugin):
+                return plugin
+        return None
+
     def query_images(
         self,
         instrument: str,
@@ -174,8 +188,8 @@ class ImageService:
     ) -> "list[ImageRecord]":
         """Return images matching time range ± spatial bounding box.
 
-        When spatial bounds are provided, filters via the geolocation index
-        and intersects with the time-range result.
+        When spatial bounds are provided, filters via a registered
+        SpatialQueryPlugin and intersects with the time-range result.
         """
         if any(v is not None for v in [lat_min, lat_max, lon_min, lon_max]):
             if None in (lat_min, lat_max, lon_min, lon_max):
@@ -183,8 +197,13 @@ class ImageService:
                     "All four spatial bounds (lat_min, lat_max, lon_min, lon_max) "
                     "must be provided together."
                 )
+            spatial = self._spatial_plugin()
+            if spatial is None:
+                raise RuntimeError(
+                    "Spatial query requested but no SpatialQueryPlugin is registered."
+                )
             geo_ids = set(
-                query_spatial(
+                spatial.query_spatial(
                     self._store,
                     lat_min,  # type: ignore[arg-type]
                     lat_max,  # type: ignore[arg-type]
@@ -420,6 +439,82 @@ class ImageService:
     def get_ingest_task(self, task_id: str) -> "IngestTask | None":
         from improv.oltp.queries import get_ingest_task
         return get_ingest_task(self._session, task_id)
+
+    # ------------------------------------------------------------------
+    # Classifier taxonomy (label-map)
+    # ------------------------------------------------------------------
+
+    def register_classifier_taxonomy(
+        self,
+        classifier: str,
+        model_version: str,
+        class_names: "list[str]",
+    ) -> "tuple[ClassifierTaxonomy, bool]":
+        """Register a classifier's ordered label-map; return (taxonomy, created).
+
+        classifier is the plugin kind (e.g. "ifcb_cnn_classification").
+        Idempotent on (classifier, model_version). Any change to the class list
+        or order must use a new model_version.
+        """
+        from improv.oltp.queries import (
+            get_classifier_taxonomy,
+            register_classifier_taxonomy,
+        )
+        existing = get_classifier_taxonomy(self._session, classifier, model_version)
+        if existing is not None:
+            return existing, False
+        taxonomy = register_classifier_taxonomy(
+            self._session, classifier, model_version, class_names,
+            now=datetime.now(tz=timezone.utc),
+        )
+        self._session.commit()
+        return taxonomy, True
+
+    def get_classifier_taxonomy(
+        self, classifier: str, model_version: str
+    ) -> "ClassifierTaxonomy | None":
+        from improv.oltp.queries import get_classifier_taxonomy
+        return get_classifier_taxonomy(self._session, classifier, model_version)
+
+    def get_latest_classifier_taxonomy(
+        self, classifier: str
+    ) -> "ClassifierTaxonomy | None":
+        from improv.oltp.queries import get_latest_classifier_taxonomy
+        return get_latest_classifier_taxonomy(self._session, classifier)
+
+    def decode_classification(
+        self,
+        classifier: str,
+        model_version: str,
+        scores: "list[float]",
+        winner_index: int,
+    ) -> dict:
+        """Turn a positional score vector into names via the exact-version label-map.
+
+        Returns ``{"winner": <name>, "scores": {name: score, ...}}``.
+        Raises ValueError if no taxonomy is registered for
+        (classifier, model_version) or its length does not match the vector.
+        """
+        taxonomy = self.get_classifier_taxonomy(classifier, model_version)
+        if taxonomy is None:
+            raise ValueError(
+                f"No taxonomy registered for classifier={classifier!r} "
+                f"model_version={model_version!r}."
+            )
+        names = taxonomy.class_names
+        if len(names) != len(scores):
+            raise ValueError(
+                f"Taxonomy for {classifier!r}/{model_version!r} has {len(names)} "
+                f"classes but score vector has {len(scores)}."
+            )
+        if not 0 <= winner_index < len(names):
+            raise ValueError(
+                f"winner_index {winner_index} out of range for {len(names)} classes."
+            )
+        return {
+            "winner": names[winner_index],
+            "scores": {name: score for name, score in zip(names, scores)},
+        }
 
     # ------------------------------------------------------------------
     # Binary products

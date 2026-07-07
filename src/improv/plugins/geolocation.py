@@ -7,7 +7,7 @@ interpolation, sample metadata) and is versioned and re-runnable.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -15,6 +15,12 @@ from pydantic import BaseModel
 if TYPE_CHECKING:
     from amplify_db_utils import ColumnarStore
     from improv.models.provenance import ProvenanceEnvelope
+
+
+def _as_utc(ts: datetime) -> datetime:
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts
 
 
 class GeoLocationRecord(BaseModel):
@@ -69,3 +75,47 @@ class GeoLocationPlugin:
             "year": envelope.year,
             "month": envelope.month,
         }
+
+    # --- SpatialQueryPlugin capability -------------------------------------
+
+    def write_index(
+        self,
+        store: "ColumnarStore",
+        records: list[GeoLocationIndexRecord],
+    ) -> None:
+        """Batch-write geolocation index records."""
+        store.write(self.index_table, [r.model_dump() for r in records])
+
+    def query_spatial(
+        self,
+        store: "ColumnarStore",
+        lat_min: float,
+        lat_max: float,
+        lon_min: float,
+        lon_max: float,
+        time_start: datetime | None = None,
+        time_end: datetime | None = None,
+    ) -> list[str]:
+        """Return image_ids within a lat/lon bounding box, optionally scoped by time.
+
+        Time filtering uses the year/month partition keys for efficient pruning
+        (month-level precision). Callers may apply exact timestamp filtering
+        against the images table afterward.
+        """
+        filters: dict = {
+            "lat": {"gte": lat_min, "lte": lat_max},
+            "lon": {"gte": lon_min, "lte": lon_max},
+        }
+        # Approximate time scoping via partition keys when both bounds share a year
+        if time_start is not None and time_end is not None:
+            time_start = _as_utc(time_start)
+            time_end = _as_utc(time_end)
+            if time_start.year == time_end.year:
+                filters["year"] = time_start.year
+                if time_start.month == time_end.month:
+                    filters["month"] = time_start.month
+
+        return [
+            row["image_id"]
+            for row in store.read(self.index_table, filters=filters)
+        ]
