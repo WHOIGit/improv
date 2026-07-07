@@ -260,3 +260,40 @@ def test_get_ingest_task(improv_client):
 
 def test_get_ingest_task_not_found(improv_client):
     assert improv_client.get_ingest_task("NONEXISTENT") is None
+
+
+# ------------------------------------------------------------------
+# Classifier taxonomy
+# ------------------------------------------------------------------
+
+CLASSIFIER = "ifcb_cnn_classification"
+
+
+def test_register_classifier_taxonomy(improv_client):
+    taxonomy, created = improv_client.register_classifier_taxonomy(
+        CLASSIFIER, "v4", ["Ceratium", "Chaetoceros"]
+    )
+    assert created is True
+    assert taxonomy["classifier"] == CLASSIFIER
+    assert taxonomy["model_version"] == "v4"
+    assert taxonomy["class_names"] == ["Ceratium", "Chaetoceros"]
+
+
+def test_register_classifier_taxonomy_idempotent(improv_client):
+    improv_client.register_classifier_taxonomy(CLASSIFIER, "v4", ["A", "B"])
+    taxonomy, created = improv_client.register_classifier_taxonomy(
+        CLASSIFIER, "v4", ["A", "B"]
+    )
+    assert created is False
+    assert taxonomy["class_names"] == ["A", "B"]
+
+
+def test_get_classifier_taxonomy(improv_client):
+    improv_client.register_classifier_taxonomy(CLASSIFIER, "v4", ["A", "B", "C"])
+    taxonomy = improv_client.get_classifier_taxonomy(CLASSIFIER, "v4")
+    assert taxonomy is not None
+    assert taxonomy["class_names"] == ["A", "B", "C"]
+
+
+def test_get_classifier_taxonomy_not_found(improv_client):
+    assert improv_client.get_classifier_taxonomy(CLASSIFIER, "nope") is None

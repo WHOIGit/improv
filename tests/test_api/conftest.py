@@ -15,14 +15,14 @@ from amplify_db_utils import DuckDBParquetConfig, DuckDBParquetStore
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from improv.api.routers import blobs, datasets, images, ingest_tasks, instruments, provenance, samples
+from improv.api.routers import blobs, classification, datasets, images, ingest_tasks, instruments, provenance, samples
 from improv.oltp.models import Base
 from improv.plugins.geolocation import GeoLocationPlugin
 from improv.plugins.sample_context import SampleContextPlugin
 from improv.service import ImageService
 from improv.store.tables import register_service_tables
 
-from tests.conftest import AlphaParser
+from tests.conftest import AlphaParser, BetaParser
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ def client(tmp_path):
     session = Session()
 
     plugins = [GeoLocationPlugin(), SampleContextPlugin()]
-    parsers = [AlphaParser()]
+    parsers = [AlphaParser(), BetaParser()]
     register_service_tables(store, plugins)
 
     service = ImageService(
@@ -62,6 +62,7 @@ def client(tmp_path):
     app.include_router(blobs.router)
     app.include_router(datasets.router)
     app.include_router(ingest_tasks.router)
+    app.include_router(classification.router)
 
     with TestClient(app) as c:
         yield c

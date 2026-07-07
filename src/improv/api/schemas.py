@@ -54,6 +54,8 @@ class ProvenanceResponse(BaseModel):
     timestamp: datetime
     data: dict
     instrument: str | None = None
+    year: int | None = None
+    month: int | None = None
 
 
 class ProvenanceIngest(BaseModel):
@@ -63,8 +65,45 @@ class ProvenanceIngest(BaseModel):
     data: dict
 
 
+class ProvenanceBatchRecord(BaseModel):
+    # Batch records carry their own image_id (unlike single-record ingest, where
+    # image_id comes from the path).
+    image_id: str
+    kind: str
+    source: str
+    timestamp: datetime
+    data: dict
+
+
 class ProvenanceBatchIngest(BaseModel):
-    records: list[ProvenanceIngest]
+    records: list[ProvenanceBatchRecord]
+
+
+# ---------------------------------------------------------------------------
+# Classification / taxonomy
+# ---------------------------------------------------------------------------
+
+class TaxonomyCreate(BaseModel):
+    model_version: str
+    class_names: list[str]
+
+
+class TaxonomyResponse(BaseModel):
+    classifier: str
+    model_version: str
+    class_names: list[str]
+    created_at: datetime
+
+
+class DecodeRequest(BaseModel):
+    model_version: str
+    scores: list[float]
+    winner_index: int
+
+
+class DecodedClassificationResponse(BaseModel):
+    winner: str
+    scores: dict[str, float]
 
 
 # ---------------------------------------------------------------------------

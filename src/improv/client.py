@@ -210,3 +210,40 @@ class ImprovClient:
             return None
         resp.raise_for_status()
         return resp.json()
+
+    # ------------------------------------------------------------------
+    # Classifier taxonomy
+    # ------------------------------------------------------------------
+
+    def register_classifier_taxonomy(
+        self,
+        classifier: str,
+        model_version: str,
+        class_names: list[str],
+    ) -> tuple[dict, bool]:
+        """Register a classifier taxonomy. Returns (taxonomy_dict, created).
+
+        Returns created=False if the (classifier, model_version) already exists
+        (409). Batch producers register a taxonomy before ingesting the
+        positional score vectors that decode against it.
+        """
+        resp = self._client.post(
+            f"/classifiers/{classifier}/taxonomies",
+            json={"model_version": model_version, "class_names": class_names},
+        )
+        if resp.status_code == 409:
+            return self.get_classifier_taxonomy(classifier, model_version), False
+        resp.raise_for_status()
+        return resp.json(), True
+
+    def get_classifier_taxonomy(
+        self, classifier: str, model_version: str
+    ) -> dict | None:
+        """Get a taxonomy by exact (classifier, model_version). None if absent."""
+        resp = self._client.get(
+            f"/classifiers/{classifier}/taxonomies/{model_version}"
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
