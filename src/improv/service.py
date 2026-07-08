@@ -23,6 +23,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterator
 
+from pydantic import BaseModel
+
 from improv.plugins import SpatialQueryPlugin
 from improv.store.images import (
     bulk_get_images,
@@ -152,6 +154,9 @@ class ImageService:
                 continue
             index_record = plugin.extract_index_record(envelope)
             if index_record is not None and plugin.index_table is not None:
+                schema = plugin.index_schema
+                if isinstance(schema, type) and issubclass(schema, BaseModel):
+                    index_record = schema(**index_record).model_dump()
                 index_batches[plugin.index_table].append(index_record)
 
         for table, index_records in index_batches.items():
