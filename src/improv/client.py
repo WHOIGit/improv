@@ -6,6 +6,13 @@ database access.
 
 Columnar store and object store writes remain direct — only OLTP operations
 go through HTTP.
+
+Scope
+-----
+This is the ingest-producer surface, not a full mirror of the REST API:
+instruments, samples, ingest tasks, and taxonomy registration (plus the one
+taxonomy read a producer needs). Read/query and score-decode endpoints are
+intentionally omitted.
 """
 
 from __future__ import annotations
