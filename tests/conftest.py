@@ -18,13 +18,19 @@ from improv.store.tables import register_service_tables
 
 import os
 import uuid
-import pytest
 
-from amplify_db_utils import DuckDBParquetConfig, DuckDBParquetStore
-from amplify_db_utils.vastdb_store import VastDBConfig, VastDBStore
+# VAST DB backend is optional — its driver (`vastdb`) is only installed via the
+# `vastdb` extra. Guard the import so the suite still collects without it; the
+# backend is exercised only when IMPROV_TEST_VASTDB=1 and the driver is present.
+try:
+    from amplify_db_utils.vastdb_store import VastDBConfig, VastDBStore
+
+    _HAVE_VASTDB = True
+except ImportError:
+    _HAVE_VASTDB = False
 
 _BACKENDS = ["duckdb"]
-if os.environ.get("IMPROV_TEST_VASTDB") == "1":
+if _HAVE_VASTDB and os.environ.get("IMPROV_TEST_VASTDB") == "1":
     _BACKENDS.append("vastdb")
 
 # ---------------------------------------------------------------------------
