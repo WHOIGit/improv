@@ -7,7 +7,14 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from improv.oltp.models import Dataset, DatasetSpan, IngestTask, Instrument, Sample
+from improv.oltp.models import (
+    ClassifierTaxonomy,
+    Dataset,
+    DatasetSpan,
+    IngestTask,
+    Instrument,
+    Sample,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -225,3 +232,63 @@ def delete_ingest_task(session: Session, task_id: str) -> bool:
     session.delete(task)
     session.flush()
     return True
+
+
+# ---------------------------------------------------------------------------
+# ClassifierTaxonomy
+# ---------------------------------------------------------------------------
+
+def get_classifier_taxonomy(
+    session: Session,
+    classifier: str,
+    model_version: str,
+) -> ClassifierTaxonomy | None:
+    """Return the label-map for an exact (classifier, model_version)."""
+    return (
+        session.query(ClassifierTaxonomy)
+        .filter(
+            ClassifierTaxonomy.classifier == classifier,
+            ClassifierTaxonomy.model_version == model_version,
+        )
+        .first()
+    )
+
+
+def get_latest_classifier_taxonomy(
+    session: Session,
+    classifier: str,
+) -> ClassifierTaxonomy | None:
+    """Return the most recently registered label-map for a classifier.
+
+    For display / new work only — decode historical vectors against their own
+    model_version via get_classifier_taxonomy.
+    """
+    return (
+        session.query(ClassifierTaxonomy)
+        .filter(ClassifierTaxonomy.classifier == classifier)
+        .order_by(ClassifierTaxonomy.created_at.desc())
+        .first()
+    )
+
+
+def register_classifier_taxonomy(
+    session: Session,
+    classifier: str,
+    model_version: str,
+    class_names: list[str],
+    now: datetime,
+) -> ClassifierTaxonomy:
+    """Create or return the existing label-map for (classifier, model_version)."""
+    existing = get_classifier_taxonomy(session, classifier, model_version)
+    if existing is not None:
+        return existing
+    taxonomy = ClassifierTaxonomy(
+        taxonomy_id=str(uuid.uuid4()),
+        classifier=classifier,
+        model_version=model_version,
+        class_names=list(class_names),
+        created_at=now,
+    )
+    session.add(taxonomy)
+    session.flush()
+    return taxonomy

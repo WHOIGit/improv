@@ -83,8 +83,8 @@ def test_ingest_provenance_plugin_dual_write(service, store_with_tables):
     env = geo_envelope(record.image_id, lat=41.5, lon=-70.5)
     service.ingest_provenance([env])
 
-    from improv.store.indexes import query_spatial
-    ids = query_spatial(store_with_tables, 41.0, 42.0, -71.0, -70.0)
+    from improv.plugins.geolocation import GeoLocationPlugin
+    ids = GeoLocationPlugin().query_spatial(store_with_tables, 41.0, 42.0, -71.0, -70.0)
     assert record.image_id in ids
 
 
@@ -171,6 +171,65 @@ def test_get_dataset_images(service, session):
 
 
 # ---------------------------------------------------------------------------
+# Classifier taxonomy (label-map)
+# ---------------------------------------------------------------------------
+
+def test_register_classifier_taxonomy_idempotent(service):
+    tax, created = service.register_classifier_taxonomy(
+        "ifcb_cnn_classification", "v4", ["Ceratium", "Chaetoceros"]
+    )
+    assert created is True
+    assert tax.class_names == ["Ceratium", "Chaetoceros"]
+
+    again, created2 = service.register_classifier_taxonomy(
+        "ifcb_cnn_classification", "v4", ["ignored"]
+    )
+    assert created2 is False
+    assert again.taxonomy_id == tax.taxonomy_id
+    assert again.class_names == ["Ceratium", "Chaetoceros"]  # unchanged
+
+
+def test_get_classifier_taxonomy_exact_version(service):
+    service.register_classifier_taxonomy("clf", "v1", ["A", "B"])
+    service.register_classifier_taxonomy("clf", "v2", ["A", "B", "C"])
+
+    v1 = service.get_classifier_taxonomy("clf", "v1")
+    v2 = service.get_classifier_taxonomy("clf", "v2")
+    assert v1.class_names == ["A", "B"]
+    assert v2.class_names == ["A", "B", "C"]
+    assert service.get_classifier_taxonomy("clf", "missing") is None
+
+
+def test_get_latest_classifier_taxonomy(service):
+    service.register_classifier_taxonomy("clf", "v1", ["A"])
+    service.register_classifier_taxonomy("clf", "v2", ["A", "B"])
+    latest = service.get_latest_classifier_taxonomy("clf")
+    assert latest.model_version == "v2"
+
+
+def test_decode_classification_roundtrip(service):
+    service.register_classifier_taxonomy(
+        "ifcb_cnn_classification", "v4", ["Ceratium", "Chaetoceros", "Dinophysis"]
+    )
+    decoded = service.decode_classification(
+        "ifcb_cnn_classification", "v4", [0.1, 0.7, 0.2], winner_index=1
+    )
+    assert decoded["winner"] == "Chaetoceros"
+    assert decoded["scores"] == {"Ceratium": 0.1, "Chaetoceros": 0.7, "Dinophysis": 0.2}
+
+
+def test_decode_classification_unknown_version(service):
+    with pytest.raises(ValueError):
+        service.decode_classification("clf", "nope", [0.5, 0.5], winner_index=0)
+
+
+def test_decode_classification_length_mismatch(service):
+    service.register_classifier_taxonomy("clf", "v1", ["A", "B"])
+    with pytest.raises(ValueError):
+        service.decode_classification("clf", "v1", [0.5, 0.3, 0.2], winner_index=0)
+
+
+# ---------------------------------------------------------------------------
 # Blob key
 # ---------------------------------------------------------------------------
 
@@ -196,3 +255,27 @@ def test_get_blob_key_none_when_no_blob(service):
     record = alpha_record("001")
     service.ingest_images([record])
     assert service.get_blob_key(record.image_id) is None
+
+
+def test_batch_provenance_writes_one_index_call_per_table(service, monkeypatch):
+    """A batch of N same-kind records → one batched index write, not N."""
+    recs = [alpha_record(f"00{i}") for i in range(1, 4)]
+    service.ingest_images(recs)
+    envs = [
+        geo_envelope(r.image_id, lat=41.0 + i * 0.1, lon=-70.0)
+        for i, r in enumerate(recs)
+    ]
+
+    calls: list[tuple[str, int]] = []
+    orig = service._store.write
+
+    def spy(table, records, *args, **kwargs):
+        calls.append((table, len(records)))
+        return orig(table, records, *args, **kwargs)
+
+    monkeypatch.setattr(service._store, "write", spy)
+    service.ingest_provenance(envs)
+
+    assert ("provenance", 3) in calls
+    # geolocation_index written once with all 3 rows, not three single-row writes
+    assert [c for c in calls if c[0] == "geolocation_index"] == [("geolocation_index", 3)]

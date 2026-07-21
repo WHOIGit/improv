@@ -6,6 +6,13 @@ database access.
 
 Columnar store and object store writes remain direct — only OLTP operations
 go through HTTP.
+
+Scope
+-----
+This is the ingest-producer surface, not a full mirror of the REST API:
+instruments, samples, ingest tasks, and taxonomy registration (plus the one
+taxonomy read a producer needs). Read/query and score-decode endpoints are
+intentionally omitted.
 """
 
 from __future__ import annotations
@@ -206,6 +213,43 @@ class ImprovClient:
     def get_ingest_task(self, task_id: str) -> dict | None:
         """Get an ingest task by ID. Returns None if not found."""
         resp = self._client.get(f"/ingest-tasks/{task_id}")
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+
+    # ------------------------------------------------------------------
+    # Classifier taxonomy
+    # ------------------------------------------------------------------
+
+    def register_classifier_taxonomy(
+        self,
+        classifier: str,
+        model_version: str,
+        class_names: list[str],
+    ) -> tuple[dict, bool]:
+        """Register a classifier taxonomy. Returns (taxonomy_dict, created).
+
+        Returns created=False if the (classifier, model_version) already exists
+        (409). Batch producers register a taxonomy before ingesting the
+        positional score vectors that decode against it.
+        """
+        resp = self._client.post(
+            f"/classifiers/{classifier}/taxonomies",
+            json={"model_version": model_version, "class_names": class_names},
+        )
+        if resp.status_code == 409:
+            return self.get_classifier_taxonomy(classifier, model_version), False
+        resp.raise_for_status()
+        return resp.json(), True
+
+    def get_classifier_taxonomy(
+        self, classifier: str, model_version: str
+    ) -> dict | None:
+        """Get a taxonomy by exact (classifier, model_version). None if absent."""
+        resp = self._client.get(
+            f"/classifiers/{classifier}/taxonomies/{model_version}"
+        )
         if resp.status_code == 404:
             return None
         resp.raise_for_status()

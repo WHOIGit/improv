@@ -14,8 +14,15 @@ import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from improv.hashing import canonical_data_hash
 from improv.ids import ImageIdParser, make_partition_keys
 from improv.models.provenance import ProvenanceEnvelope
+
+# Columns that define provenance-row identity for idempotent read-time dedup.
+# Two rows agreeing on all four are the same fact; a retry re-appends an
+# identical row that collapses here. `written_at` is deliberately excluded so
+# retries (which differ only in write time) are treated as duplicates.
+_IDENTITY_KEYS = ("image_id", "kind", "source", "data_hash")
 
 if TYPE_CHECKING:
     from amplify_db_utils import ColumnarStore
@@ -58,13 +65,39 @@ def _row_to_envelope(row: dict) -> ProvenanceEnvelope:
     return ProvenanceEnvelope(**r)
 
 
+def _dedup_identity(rows: list[dict]) -> list[dict]:
+    """Collapse rows sharing an identity key, keeping one per identity.
+
+    Backend-neutral (pure Python) so idempotency behaves identically on every
+    columnar backend — the append-only WORM stores (VAST DB) and the
+    overwrite-capable ones (DuckDB/Parquet) alike. Rows sharing an identity key
+    are byte-identical except for `written_at`, so which copy is kept is
+    immaterial; first occurrence wins.
+    """
+    seen: dict[tuple, dict] = {}
+    for row in rows:
+        key = tuple(row.get(k) for k in _IDENTITY_KEYS)
+        if key not in seen:
+            seen[key] = row
+    return list(seen.values())
+
+
 def write_provenance(
     store: "ColumnarStore",
     records: list[ProvenanceEnvelope],
     parsers: list[ImageIdParser],
 ) -> None:
-    """Append provenance records to the columnar store."""
+    """Append provenance records to the columnar store.
+
+    Stamps each row with its canonical `data_hash` (identity) and a `written_at`
+    timestamp before writing. Writes are append-only; deduplication happens at
+    read time via the (image_id, kind, source, data_hash) identity key.
+    """
+    now = datetime.now(timezone.utc)
     dicts = [_enrich(r.model_dump(), parsers) for r in records]
+    for d in dicts:
+        d["data_hash"] = canonical_data_hash(d["data"])
+        d["written_at"] = now
     store.write("provenance", dicts)
 
 
@@ -77,7 +110,8 @@ def get_provenance(
     """Return all provenance records for an image."""
     keys = make_partition_keys(image_id, parsers, instrument_hint)
     filters: dict = {"image_id": image_id, **keys}
-    return [_row_to_envelope(row) for row in store.read("provenance", filters=filters)]
+    rows = _dedup_identity(list(store.read("provenance", filters=filters)))
+    return [_row_to_envelope(row) for row in rows]
 
 
 def get_provenance_by_kind(
@@ -90,4 +124,5 @@ def get_provenance_by_kind(
     """Return provenance records of a specific kind for an image."""
     keys = make_partition_keys(image_id, parsers, instrument_hint)
     filters: dict = {"image_id": image_id, "kind": kind, **keys}
-    return [_row_to_envelope(row) for row in store.read("provenance", filters=filters)]
+    rows = _dedup_identity(list(store.read("provenance", filters=filters)))
+    return [_row_to_envelope(row) for row in rows]

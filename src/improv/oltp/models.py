@@ -152,3 +152,38 @@ class IngestTask(Base):
 
     def __repr__(self) -> str:
         return f"<IngestTask {self.task_id!r} status={self.status!r}>"
+
+
+class ClassifierTaxonomy(Base):
+    """Ordered class-name list (label-map) for one classifier + model version.
+
+    A machine classification record stores scores positionally (a float vector)
+    and the winner as an integer index; the class names live here, keyed by
+    (classifier, model_version), where classifier is the plugin kind
+    (e.g. "ifcb_cnn_classification"). Index position in class_names is the class
+    id. Append-only: any change to the class list/order requires a new
+    model_version, so historical vectors decode against their own version.
+    """
+
+    __tablename__ = "classifier_taxonomy"
+    __table_args__ = (
+        UniqueConstraint(
+            "classifier", "model_version", name="uq_classifier_taxonomy_version"
+        ),
+    )
+
+    taxonomy_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    classifier: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    model_version: Mapped[str] = mapped_column(String, nullable=False)
+    class_names: Mapped[list] = mapped_column(JSON, nullable=False)  # ordered list[str]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ClassifierTaxonomy {self.classifier!r} {self.model_version!r} "
+            f"n_classes={len(self.class_names)}>"
+        )

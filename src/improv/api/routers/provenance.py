@@ -24,6 +24,8 @@ def _to_response(env: ProvenanceEnvelope) -> ProvenanceResponse:
         timestamp=env.timestamp,
         data=env.data,
         instrument=env.instrument,
+        year=env.year,
+        month=env.month,
     )
 
 
@@ -39,17 +41,37 @@ def ingest_provenance_batch(
 ) -> dict:
     envelopes = [
         ProvenanceEnvelope(
-            image_id="",  # overridden per record below — batch has no shared image_id
+            image_id=r.image_id,
             kind=r.kind,
             source=r.source,
             timestamp=r.timestamp,
             data=r.data,
-            instrument=instrument,
+            instrument=instrument,  # uniform fallback hint; parser wins per record
         )
         for r in body.records
     ]
-    service.ingest_provenance(envelopes)
-    return {"ingested": len(envelopes)}
+
+    # A batch is assumed single-instrument. Resolve each record's instrument up
+    # front and reject (before any write) if the batch spans more than one, or if
+    # a record's image_id neither parses nor has the fallback hint.
+    try:
+        enriched = service.enrich_envelopes(envelopes)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    instruments = {e.instrument for e in enriched}
+    if len(instruments) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Batch spans multiple instruments {sorted(instruments)}; "
+            "post one instrument's records at a time.",
+        )
+
+    try:
+        service.ingest_provenance(enriched)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"ingested": len(enriched)}
 
 
 @router.get(
@@ -97,5 +119,8 @@ def ingest_provenance(
         data=body.data,
         instrument=instrument,
     )
-    service.ingest_provenance([envelope])
+    try:
+        service.ingest_provenance([envelope])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ingested": 1}

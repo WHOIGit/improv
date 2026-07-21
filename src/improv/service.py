@@ -19,16 +19,19 @@ Retrieval flows:
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterator
 
+from pydantic import BaseModel
+
+from improv.plugins import SpatialQueryPlugin
 from improv.store.images import (
     bulk_get_images,
     get_image,
     get_images,
     write_images,
 )
-from improv.store.indexes import get_images_by_sample_id, query_spatial
 from improv.store.provenance import (
     get_provenance,
     get_provenance_by_kind,
@@ -44,7 +47,14 @@ if TYPE_CHECKING:
     from improv.ids import ImageIdParser
     from improv.models.image import ImageRecord
     from improv.models.provenance import ProvenanceEnvelope
-    from improv.oltp.models import Dataset, DatasetSpan, IngestTask, Instrument, Sample
+    from improv.oltp.models import (
+        ClassifierTaxonomy,
+        Dataset,
+        DatasetSpan,
+        IngestTask,
+        Instrument,
+        Sample,
+    )
     from improv.plugins import ProvenancePlugin
 
 
@@ -118,11 +128,14 @@ class ImageService:
         before writing, so that plugin index records have consistent keys.
 
         For each record, if a registered plugin handles its kind, calls
-        extract_index_record and writes the result to the plugin's index table.
-        Records with no registered plugin are stored with no index write.
+        extract_index_record and collects the result. Index records are grouped
+        by target table and written with one batched store.write per table, so a
+        batch of N provenance records costs 1 + (number of distinct index
+        tables) writes rather than 1 + N.  Records with no registered plugin are
+        stored with no index write.
 
-        Pass ``write_indexes=False`` to skip per-record index writes entirely.
-        Batch producers should do so and perform their own batched store.write.
+        Pass ``write_indexes=False`` to skip index writes entirely. Batch
+        producers may do so and perform their own batched store.write.
         """
         enriched = self.enrich_envelopes(records)
 
@@ -131,13 +144,23 @@ class ImageService:
         if not write_indexes:
             return
 
+        # Collect all index records first (extraction may raise on bad input,
+        # e.g. an out-of-range winner_index), then write each table's batch in
+        # one call. Grouping by table also merges any plugins that share one.
+        index_batches: dict[str, list[dict]] = defaultdict(list)
         for envelope in enriched:
             plugin = self._plugins.get(envelope.kind)
             if plugin is None:
                 continue
             index_record = plugin.extract_index_record(envelope)
             if index_record is not None and plugin.index_table is not None:
-                self._store.write(plugin.index_table, [index_record])
+                schema = plugin.index_schema
+                if isinstance(schema, type) and issubclass(schema, BaseModel):
+                    index_record = schema(**index_record).model_dump()
+                index_batches[plugin.index_table].append(index_record)
+
+        for table, index_records in index_batches.items():
+            self._store.write(table, index_records)
 
     # ------------------------------------------------------------------
     # Retrieval
@@ -162,6 +185,13 @@ class ImageService:
             )
         return get_provenance(self._store, image_id, self._parsers, instrument)
 
+    def _spatial_plugin(self) -> "SpatialQueryPlugin | None":
+        """Return the first registered plugin advertising the spatial query capability."""
+        for plugin in self._plugins.values():
+            if isinstance(plugin, SpatialQueryPlugin):
+                return plugin
+        return None
+
     def query_images(
         self,
         instrument: str,
@@ -174,8 +204,8 @@ class ImageService:
     ) -> "list[ImageRecord]":
         """Return images matching time range ± spatial bounding box.
 
-        When spatial bounds are provided, filters via the geolocation index
-        and intersects with the time-range result.
+        When spatial bounds are provided, filters via a registered
+        SpatialQueryPlugin and intersects with the time-range result.
         """
         if any(v is not None for v in [lat_min, lat_max, lon_min, lon_max]):
             if None in (lat_min, lat_max, lon_min, lon_max):
@@ -183,8 +213,13 @@ class ImageService:
                     "All four spatial bounds (lat_min, lat_max, lon_min, lon_max) "
                     "must be provided together."
                 )
+            spatial = self._spatial_plugin()
+            if spatial is None:
+                raise RuntimeError(
+                    "Spatial query requested but no SpatialQueryPlugin is registered."
+                )
             geo_ids = set(
-                query_spatial(
+                spatial.query_spatial(
                     self._store,
                     lat_min,  # type: ignore[arg-type]
                     lat_max,  # type: ignore[arg-type]
@@ -420,6 +455,82 @@ class ImageService:
     def get_ingest_task(self, task_id: str) -> "IngestTask | None":
         from improv.oltp.queries import get_ingest_task
         return get_ingest_task(self._session, task_id)
+
+    # ------------------------------------------------------------------
+    # Classifier taxonomy (label-map)
+    # ------------------------------------------------------------------
+
+    def register_classifier_taxonomy(
+        self,
+        classifier: str,
+        model_version: str,
+        class_names: "list[str]",
+    ) -> "tuple[ClassifierTaxonomy, bool]":
+        """Register a classifier's ordered label-map; return (taxonomy, created).
+
+        classifier is the plugin kind (e.g. "ifcb_cnn_classification").
+        Idempotent on (classifier, model_version). Any change to the class list
+        or order must use a new model_version.
+        """
+        from improv.oltp.queries import (
+            get_classifier_taxonomy,
+            register_classifier_taxonomy,
+        )
+        existing = get_classifier_taxonomy(self._session, classifier, model_version)
+        if existing is not None:
+            return existing, False
+        taxonomy = register_classifier_taxonomy(
+            self._session, classifier, model_version, class_names,
+            now=datetime.now(tz=timezone.utc),
+        )
+        self._session.commit()
+        return taxonomy, True
+
+    def get_classifier_taxonomy(
+        self, classifier: str, model_version: str
+    ) -> "ClassifierTaxonomy | None":
+        from improv.oltp.queries import get_classifier_taxonomy
+        return get_classifier_taxonomy(self._session, classifier, model_version)
+
+    def get_latest_classifier_taxonomy(
+        self, classifier: str
+    ) -> "ClassifierTaxonomy | None":
+        from improv.oltp.queries import get_latest_classifier_taxonomy
+        return get_latest_classifier_taxonomy(self._session, classifier)
+
+    def decode_classification(
+        self,
+        classifier: str,
+        model_version: str,
+        scores: "list[float]",
+        winner_index: int,
+    ) -> dict:
+        """Turn a positional score vector into names via the exact-version label-map.
+
+        Returns ``{"winner": <name>, "scores": {name: score, ...}}``.
+        Raises ValueError if no taxonomy is registered for
+        (classifier, model_version) or its length does not match the vector.
+        """
+        taxonomy = self.get_classifier_taxonomy(classifier, model_version)
+        if taxonomy is None:
+            raise ValueError(
+                f"No taxonomy registered for classifier={classifier!r} "
+                f"model_version={model_version!r}."
+            )
+        names = taxonomy.class_names
+        if len(names) != len(scores):
+            raise ValueError(
+                f"Taxonomy for {classifier!r}/{model_version!r} has {len(names)} "
+                f"classes but score vector has {len(scores)}."
+            )
+        if not 0 <= winner_index < len(names):
+            raise ValueError(
+                f"winner_index {winner_index} out of range for {len(names)} classes."
+            )
+        return {
+            "winner": names[winner_index],
+            "scores": {name: score for name, score in zip(names, scores)},
+        }
 
     # ------------------------------------------------------------------
     # Binary products

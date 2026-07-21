@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from improv.models.provenance import ProvenanceEnvelope
+from improv.plugins.classification import (
+    MachineClassificationIndexRecord,
+    MachineClassificationPlugin,
+)
 from improv.plugins.geolocation import GeoLocationIndexRecord, GeoLocationPlugin
 from improv.plugins.sample_context import SampleContextPlugin, SampleIndexRecord
 
@@ -115,3 +121,138 @@ def test_sample_context_plugin_creates_table(store):
     plugin = SampleContextPlugin()
     plugin.create_index(store)
     plugin.create_index(store)  # idempotent
+
+
+# ---------------------------------------------------------------------------
+# MachineClassificationPlugin (generic, any classifier)
+# ---------------------------------------------------------------------------
+
+def test_classification_plugin_parameterized():
+    plugin = MachineClassificationPlugin(
+        kind="ecotaxa_cnn", index_table="ecotaxa_cnn_index"
+    )
+    assert plugin.kind == "ecotaxa_cnn"
+    assert plugin.index_table == "ecotaxa_cnn_index"
+    assert plugin.index_schema is MachineClassificationIndexRecord
+    assert "model_version" in plugin.partition_by
+
+
+def test_classification_plugin_extract_narrow_index():
+    """Non-IFCB classifier: index carries winner_index only, no names/scores."""
+    plugin = MachineClassificationPlugin(
+        kind="ecotaxa_cnn", index_table="ecotaxa_cnn_index"
+    )
+    env = make_env(
+        "ecotaxa_cnn",
+        {
+            "run_id": "run-1",
+            "model_version": "ecotaxa-cnn-v4",
+            "scores": [0.9, 0.1],
+            "winner_index": 0,
+            "winner_score": 0.9,
+        },
+    )
+    record = plugin.extract_index_record(env)
+    assert record is not None
+    assert record["winner_index"] == 0
+    assert record["winner_score"] == 0.9
+    assert record["run_id"] == "run-1"
+    assert record["instrument"] == "ALPHA"
+    assert record["year"] == 2024
+    # positional score vector and names are NOT indexed
+    assert "scores" not in record
+    assert "winner" not in record
+
+
+def test_classification_plugin_winner_index_out_of_range():
+    plugin = MachineClassificationPlugin(kind="ecotaxa_cnn")
+    env = make_env(
+        "ecotaxa_cnn",
+        {
+            "run_id": "run-1",
+            "model_version": "v1",
+            "scores": [0.9, 0.1],
+            "winner_index": 2,   # out of range
+            "winner_score": 0.9,
+        },
+    )
+    with pytest.raises(ValueError):
+        plugin.extract_index_record(env)
+
+
+def test_classification_plugin_creates_table(store):
+    plugin = MachineClassificationPlugin(
+        kind="ecotaxa_cnn", index_table="ecotaxa_cnn_index"
+    )
+    plugin.create_index(store)
+    plugin.create_index(store)  # idempotent
+
+
+def test_ifcb_cnn_preset_backcompat():
+    from improv.plugins.ifcb import (
+        IFCBCNNClassificationIndexRecord,
+        IFCBCNNClassificationPlugin,
+    )
+    plugin = IFCBCNNClassificationPlugin()
+    assert plugin.kind == "ifcb_cnn_classification"
+    assert plugin.index_table == "ifcb_cnn_classification_index"
+    assert IFCBCNNClassificationIndexRecord is MachineClassificationIndexRecord
+    assert isinstance(plugin, MachineClassificationPlugin)
+
+
+# ---------------------------------------------------------------------------
+# Index idempotency — retries collapse at read (matches provenance dedup)
+# ---------------------------------------------------------------------------
+
+def _geo_index_record(source="nav_v1", version="1.0"):
+    return GeoLocationIndexRecord(
+        image_id="ALPHA_20240115T120000_001",
+        lat=41.5,
+        lon=-70.5,
+        source=source,
+        version=version,
+        computed_at=datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc),
+        instrument="ALPHA",
+        year=2024,
+        month=1,
+    )
+
+
+def test_geolocation_query_dedups_retries(store):
+    plugin = GeoLocationPlugin()
+    plugin.create_index(store)
+    rec = _geo_index_record()
+    plugin.write_index(store, [rec])
+    plugin.write_index(store, [rec])  # retry re-appends an identical row
+
+    ids = plugin.query_spatial(store, 40.0, 42.0, -71.0, -70.0)
+    assert ids == ["ALPHA_20240115T120000_001"]
+
+
+def test_geolocation_query_keeps_distinct_rows(store):
+    """Rows differing in any column (e.g. source/version) are distinct facts."""
+    plugin = GeoLocationPlugin()
+    plugin.create_index(store)
+    plugin.write_index(store, [_geo_index_record(source="nav_v1", version="1.0")])
+    plugin.write_index(store, [_geo_index_record(source="nav_v2", version="2.0")])
+
+    ids = plugin.query_spatial(store, 40.0, 42.0, -71.0, -70.0)
+    assert len(ids) == 2  # both retained; not collapsed
+
+
+def test_sample_context_query_dedups_retries(store):
+    plugin = SampleContextPlugin()
+    plugin.create_index(store)
+    rec = SampleIndexRecord(
+        image_id="ALPHA_20240115T120000_001",
+        sample_id="SAMPLE_001",
+        source="ifcb_system",
+        instrument="ALPHA",
+        year=2024,
+        month=1,
+    )
+    plugin.write_index(store, [rec])
+    plugin.write_index(store, [rec])  # retry
+
+    ids = plugin.query_by_sample_id(store, "SAMPLE_001")
+    assert ids == ["ALPHA_20240115T120000_001"]

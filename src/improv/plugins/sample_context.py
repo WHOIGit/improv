@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from improv.store.dedup import dedup_rows
+
 if TYPE_CHECKING:
     from amplify_db_utils import ColumnarStore
     from improv.models.provenance import ProvenanceEnvelope
@@ -56,3 +58,30 @@ class SampleContextPlugin:
             "year": envelope.year,
             "month": envelope.month,
         }
+
+    # --- SampleQueryPlugin capability --------------------------------------
+
+    def write_index(
+        self,
+        store: "ColumnarStore",
+        records: list[SampleIndexRecord],
+    ) -> None:
+        """Batch-write sample index records."""
+        store.write(self.index_table, [r.model_dump() for r in records])
+
+    def query_by_sample_id(
+        self,
+        store: "ColumnarStore",
+        sample_id: str,
+        source: str | None = None,
+    ) -> list[str]:
+        """Return image_ids associated with a sample ID.
+
+        An image may have multiple sample_index rows (one per naming scheme /
+        source). Pass source to restrict to a specific naming authority.
+        """
+        filters: dict = {"sample_id": sample_id}
+        if source is not None:
+            filters["source"] = source
+        rows = dedup_rows(store.read(self.index_table, filters=filters))
+        return [row["image_id"] for row in rows]
