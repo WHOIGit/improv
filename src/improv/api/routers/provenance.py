@@ -67,7 +67,10 @@ def ingest_provenance_batch(
             "post one instrument's records at a time.",
         )
 
-    service.ingest_provenance(enriched)
+    try:
+        service.ingest_provenance(enriched)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ingested": len(enriched)}
 
 
@@ -116,5 +119,8 @@ def ingest_provenance(
         data=body.data,
         instrument=instrument,
     )
-    service.ingest_provenance([envelope])
+    try:
+        service.ingest_provenance([envelope])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ingested": 1}
