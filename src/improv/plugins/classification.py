@@ -83,8 +83,17 @@ class MachineClassificationPlugin:
 
     def extract_index_record(self, envelope: "ProvenanceEnvelope") -> dict | None:
         data = envelope.data
-        winner_index = data["winner_index"]
-        scores = data["scores"]
+        try:
+            winner_index = data["winner_index"]
+            scores = data["scores"]
+            run_id = data["run_id"]
+            model_version = data["model_version"]
+            winner_score = data["winner_score"]
+        except KeyError as exc:
+            raise ValueError(
+                f"classification payload missing field {exc.args[0]!r} "
+                f"(image_id={envelope.image_id!r})"
+            ) from exc
         if not 0 <= winner_index < len(scores):
             raise ValueError(
                 f"winner_index {winner_index} out of range for {len(scores)} scores "
@@ -92,10 +101,10 @@ class MachineClassificationPlugin:
             )
         return {
             "image_id": envelope.image_id,
-            "run_id": data["run_id"],
-            "model_version": data["model_version"],
+            "run_id": run_id,
+            "model_version": model_version,
             "winner_index": winner_index,
-            "winner_score": data["winner_score"],
+            "winner_score": winner_score,
             "instrument": envelope.instrument,
             "year": envelope.year,
             "month": envelope.month,
