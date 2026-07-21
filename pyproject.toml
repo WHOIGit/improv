@@ -33,7 +33,7 @@ service = [
 ]
 dev = [
     "pytest",
-    "httpx",
+    "improv[service]",
 ]
 
 [project.scripts]
