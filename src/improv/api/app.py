@@ -18,25 +18,35 @@ def create_app(config: "ImprovConfig") -> FastAPI:
     via app.state for use in route dependencies.
     """
     from amplify_db_utils import DuckDBParquetStore, DuckDBParquetConfig
-    from amplify_db_utils.vastdb_store import VastDBConfig, VastDBStore
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
+    from improv.api.auth import StaticTokenVerifier
     from improv.api.routers import blobs, classification, datasets, images, ingest_tasks, instruments, provenance, samples
     from improv.oltp.models import Base
     from improv.service import ImageService
     from improv.store.tables import register_service_tables
 
+    if not config.api_token:
+        raise RuntimeError(
+            "IMPROV_API_TOKEN is required to serve the REST surface "
+            "(set config.api_token). Refusing to start a protected API with no token."
+        )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        if isinstance(config.db_config, VastDBConfig):
-            store = VastDBStore(config.db_config)
-        elif isinstance(config.db_config, DuckDBParquetConfig):
+        # DuckDB checked first so non-VAST deployments never import vastdb.
+        if isinstance(config.db_config, DuckDBParquetConfig):
             store = DuckDBParquetStore(config.db_config)
         else:
-            raise RuntimeError(
-                f"Unsupported db_config type: {type(config.db_config).__name__}"
-            )
+            from amplify_db_utils.vastdb_store import VastDBConfig, VastDBStore
+
+            if isinstance(config.db_config, VastDBConfig):
+                store = VastDBStore(config.db_config)
+            else:
+                raise RuntimeError(
+                    f"Unsupported db_config type: {type(config.db_config).__name__}"
+                )
         engine = create_engine(config.database_url or "sqlite:///:memory:")
         Base.metadata.create_all(engine)
         Session = sessionmaker(bind=engine)
@@ -59,6 +69,10 @@ def create_app(config: "ImprovConfig") -> FastAPI:
         description="Image provenance substrate for scientific imaging instruments.",
         lifespan=lifespan,
     )
+
+    # Single construction site for auth — swap StaticTokenVerifier for a
+    # DbTokenVerifier here when tokens move to per-client storage.
+    app.state.verifier = StaticTokenVerifier(config.api_token)
 
     app.include_router(images.router)
     app.include_router(provenance.router)

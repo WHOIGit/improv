@@ -13,6 +13,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 
+from improv.api.auth import WRITE, require_scope
 from improv.api.deps import get_service
 from improv.api.schemas import ImageIngest, ImageResponse
 from improv.models.image import ImageRecord
@@ -65,7 +66,11 @@ def search_images(
     return [_to_response(r) for r in records]
 
 
-@router.post("/ingest", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/ingest",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_scope(WRITE))],
+)
 def ingest_images(
     body: list[ImageIngest] | ImageIngest,
     service: ImageService = Depends(get_service),

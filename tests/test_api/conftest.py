@@ -15,6 +15,7 @@ from amplify_db_utils import DuckDBParquetConfig, DuckDBParquetStore
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from improv.api.auth import StaticTokenVerifier
 from improv.api.routers import blobs, classification, datasets, images, ingest_tasks, instruments, provenance, samples
 from improv.oltp.models import Base
 from improv.plugins.geolocation import GeoLocationPlugin
@@ -23,6 +24,9 @@ from improv.service import ImageService
 from improv.store.tables import register_service_tables
 
 from tests.conftest import AlphaParser, BetaParser
+
+# Shared token the test client authenticates with by default.
+TEST_TOKEN = "test-token"
 
 
 @pytest.fixture
@@ -55,6 +59,7 @@ def client(tmp_path):
 
     app = FastAPI()
     app.state.service = service
+    app.state.verifier = StaticTokenVerifier(TEST_TOKEN)
     app.include_router(images.router)
     app.include_router(provenance.router)
     app.include_router(instruments.router)
@@ -65,4 +70,5 @@ def client(tmp_path):
     app.include_router(classification.router)
 
     with TestClient(app) as c:
+        c.headers["Authorization"] = f"Bearer {TEST_TOKEN}"
         yield c

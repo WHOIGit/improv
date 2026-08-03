@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from improv.api.auth import READ, WRITE, require_scope
 from improv.api.deps import get_service
 from improv.api.schemas import (
     DecodedClassificationResponse,
@@ -39,6 +40,7 @@ def _taxonomy_response(tax) -> TaxonomyResponse:
     "/classifiers/{classifier}/taxonomies",
     response_model=TaxonomyResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_scope(WRITE))],
 )
 def register_taxonomy(
     classifier: str,
@@ -123,9 +125,12 @@ def _decode(
     return DecodedClassificationResponse(**decoded)
 
 
+# decode mutates nothing (stateless label lookup) but is protected; it stays a
+# POST because the score vector belongs in the body, not the query string.
 @router.post(
     "/classifiers/{classifier}/decode",
     response_model=DecodedClassificationResponse,
+    dependencies=[Depends(require_scope(READ))],
 )
 def decode(
     classifier: str,

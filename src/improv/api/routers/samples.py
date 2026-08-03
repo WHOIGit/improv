@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from improv.api.auth import WRITE, require_scope
 from improv.api.deps import get_service
 from improv.api.schemas import (
     BatchRegisterResponse,
@@ -34,7 +35,12 @@ def _sample_response(sample) -> SampleResponse:
     )
 
 
-@router.post("", response_model=SampleResponse, status_code=201)
+@router.post(
+    "",
+    response_model=SampleResponse,
+    status_code=201,
+    dependencies=[Depends(require_scope(WRITE))],
+)
 def register_sample(
     body: SampleCreate,
     service: ImageService = Depends(get_service),
@@ -54,7 +60,11 @@ def register_sample(
     return _sample_response(sample)
 
 
-@router.post("/batch", response_model=BatchRegisterResponse)
+@router.post(
+    "/batch",
+    response_model=BatchRegisterResponse,
+    dependencies=[Depends(require_scope(WRITE))],
+)
 def register_samples_batch(
     body: list[SampleCreate],
     service: ImageService = Depends(get_service),

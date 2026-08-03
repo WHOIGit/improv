@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from improv.api.auth import WRITE, require_scope
 from improv.api.deps import get_service
 from improv.api.schemas import InstrumentCreate, InstrumentResponse
 from improv.service import ImageService
@@ -22,7 +23,12 @@ def _instrument_response(instrument) -> InstrumentResponse:
     )
 
 
-@router.post("", response_model=InstrumentResponse, status_code=201)
+@router.post(
+    "",
+    response_model=InstrumentResponse,
+    status_code=201,
+    dependencies=[Depends(require_scope(WRITE))],
+)
 def register_instrument(
     body: InstrumentCreate,
     service: ImageService = Depends(get_service),

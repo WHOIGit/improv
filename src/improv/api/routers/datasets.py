@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from improv.api.auth import WRITE, require_scope
 from improv.api.deps import get_service
 from improv.api.schemas import (
     DatasetCreate,
@@ -33,7 +34,12 @@ def _dataset_response(dataset, spans) -> DatasetResponse:
     )
 
 
-@router.post("", response_model=DatasetResponse, status_code=201)
+@router.post(
+    "",
+    response_model=DatasetResponse,
+    status_code=201,
+    dependencies=[Depends(require_scope(WRITE))],
+)
 def create_dataset(
     body: DatasetCreate,
     service: ImageService = Depends(get_service),
@@ -68,7 +74,12 @@ def get_dataset(
     return _dataset_response(dataset, spans)
 
 
-@router.post("/{name}/spans", response_model=list[DatasetSpanResponse], status_code=201)
+@router.post(
+    "/{name}/spans",
+    response_model=list[DatasetSpanResponse],
+    status_code=201,
+    dependencies=[Depends(require_scope(WRITE))],
+)
 def add_dataset_spans(
     name: str,
     body: list[DatasetSpanCreate],

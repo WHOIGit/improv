@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from improv.api.auth import READ, WRITE, require_scope
 from improv.api.deps import get_service
 from improv.api.schemas import IngestTaskCreate, IngestTaskResponse, IngestTaskUpdate
 from improv.service import ImageService
@@ -23,7 +24,12 @@ def _task_response(task) -> IngestTaskResponse:
     )
 
 
-@router.post("", response_model=IngestTaskResponse, status_code=201)
+@router.post(
+    "",
+    response_model=IngestTaskResponse,
+    status_code=201,
+    dependencies=[Depends(require_scope(WRITE))],
+)
 def register_ingest_task(
     body: IngestTaskCreate,
     service: ImageService = Depends(get_service),
@@ -40,7 +46,11 @@ def register_ingest_task(
     return _task_response(task)
 
 
-@router.get("/{task_id}", response_model=IngestTaskResponse)
+@router.get(
+    "/{task_id}",
+    response_model=IngestTaskResponse,
+    dependencies=[Depends(require_scope(READ))],
+)
 def get_ingest_task(
     task_id: str,
     service: ImageService = Depends(get_service),
@@ -51,7 +61,11 @@ def get_ingest_task(
     return _task_response(task)
 
 
-@router.patch("/{task_id}", response_model=IngestTaskResponse)
+@router.patch(
+    "/{task_id}",
+    response_model=IngestTaskResponse,
+    dependencies=[Depends(require_scope(WRITE))],
+)
 def update_ingest_task(
     task_id: str,
     body: IngestTaskUpdate,
@@ -68,7 +82,11 @@ def update_ingest_task(
     return _task_response(task)
 
 
-@router.delete("/{task_id}", status_code=204)
+@router.delete(
+    "/{task_id}",
+    status_code=204,
+    dependencies=[Depends(require_scope(WRITE))],
+)
 def delete_ingest_task(
     task_id: str,
     service: ImageService = Depends(get_service),

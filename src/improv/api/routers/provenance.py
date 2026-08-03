@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from improv.api.auth import WRITE, require_scope
 from improv.api.deps import get_service
 from improv.api.schemas import (
     ProvenanceBatchIngest,
@@ -33,6 +34,7 @@ def _to_response(env: ProvenanceEnvelope) -> ProvenanceResponse:
 @router.post(
     "/images/provenance/batch",
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_scope(WRITE))],
 )
 def ingest_provenance_batch(
     body: ProvenanceBatchIngest,
@@ -104,6 +106,7 @@ def get_provenance(
 @router.post(
     "/images/{image_id}/provenance",
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_scope(WRITE))],
 )
 def ingest_provenance(
     image_id: str,
