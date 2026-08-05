@@ -12,7 +12,8 @@ Environment variables (for load_config):
   IMPROV_S3_SECRET_KEY    — S3 secret key (optional)
   IMPROV_STORAGE_PATH     — local path for HashdirStore object storage (optional)
   IMPROV_API_TOKEN        — shared bearer token for the REST surface (required
-                            for service mode; protects write + ingest-task read)
+                            for service mode; protects every write endpoint plus
+                            ingest-task read and classifier decode)
 """
 
 from __future__ import annotations

@@ -39,7 +39,14 @@ def create_app(config: "ImprovConfig") -> FastAPI:
         if isinstance(config.db_config, DuckDBParquetConfig):
             store = DuckDBParquetStore(config.db_config)
         else:
-            from amplify_db_utils.vastdb_store import VastDBConfig, VastDBStore
+            try:
+                from amplify_db_utils.vastdb_store import VastDBConfig, VastDBStore
+            except ImportError:
+                # vastdb not installed, so db_config cannot be a VastDBConfig —
+                # report the config error rather than the missing driver.
+                raise RuntimeError(
+                    f"Unsupported db_config type: {type(config.db_config).__name__}"
+                )
 
             if isinstance(config.db_config, VastDBConfig):
                 store = VastDBStore(config.db_config)

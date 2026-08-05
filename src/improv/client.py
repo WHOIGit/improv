@@ -17,6 +17,7 @@ intentionally omitted.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 import httpx
@@ -30,7 +31,8 @@ class ImprovClient:
     base_url : str
         The base URL of the improv REST API (e.g. "http://localhost:8000").
     token : str | None
-        Optional bearer token for authentication.
+        Bearer token for authentication. Defaults to ``IMPROV_API_TOKEN`` from
+        the environment; every write operation on this client requires one.
     timeout : float
         Request timeout in seconds.
     """
@@ -42,6 +44,8 @@ class ImprovClient:
         timeout: float = 30.0,
         _client: httpx.Client | None = None,
     ) -> None:
+        if token is None:
+            token = os.environ.get("IMPROV_API_TOKEN")
         if _client is not None:
             self._client = _client
         else:

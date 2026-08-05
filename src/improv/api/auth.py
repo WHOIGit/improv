@@ -60,10 +60,13 @@ class StaticTokenVerifier:
     def __init__(self, token: str) -> None:
         if not token:
             raise ValueError("StaticTokenVerifier requires a non-empty token.")
-        self._token = token
+        # Compared as bytes: secrets.compare_digest raises TypeError on str
+        # inputs containing non-ASCII, and header values reach us as latin-1
+        # decoded str, so a non-ASCII token would otherwise 500 instead of 401.
+        self._token = token.encode("utf-8")
 
     def verify(self, token: str) -> Principal | None:
-        if secrets.compare_digest(token, self._token):
+        if secrets.compare_digest(token.encode("utf-8"), self._token):
             return Principal(label="service", scopes=ALL_SCOPES)
         return None
 
