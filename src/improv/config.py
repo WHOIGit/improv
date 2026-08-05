@@ -11,6 +11,9 @@ Environment variables (for load_config):
   IMPROV_S3_ACCESS_KEY    — S3 access key (optional)
   IMPROV_S3_SECRET_KEY    — S3 secret key (optional)
   IMPROV_STORAGE_PATH     — local path for HashdirStore object storage (optional)
+  IMPROV_API_TOKEN        — shared bearer token for the REST surface (required
+                            for service mode; protects every write endpoint plus
+                            ingest-task read and classifier decode)
 """
 
 from __future__ import annotations
@@ -20,9 +23,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from amplify_db_utils import DuckDBParquetConfig
-from amplify_db_utils.vastdb_store import VastDBConfig
 
 if TYPE_CHECKING:
+    from amplify_db_utils.vastdb_store import VastDBConfig
     from improv.ids import ImageIdParser
     from improv.plugins import ProvenancePlugin
     from storage.object import ObjectStore
@@ -31,7 +34,7 @@ if TYPE_CHECKING:
 @dataclass
 class ImprovConfig:
     # Columnar store — required
-    db_config: DuckDBParquetConfig | VastDBConfig
+    db_config: "DuckDBParquetConfig | VastDBConfig"
 
     # OLTP database — required for service mode; omit for batch-producer use
     database_url: str | None = None
@@ -43,6 +46,9 @@ class ImprovConfig:
     # Object store for binary product retrieval — optional
     storage: "ObjectStore | None" = None
 
+    # Shared bearer token for the REST surface — required for service mode
+    api_token: str | None = None
+
 
 def load_config() -> ImprovConfig:
     """Build ImprovConfig from environment variables."""
@@ -50,6 +56,9 @@ def load_config() -> ImprovConfig:
     db_root = os.environ.get("IMPROV_DB_ROOT")
     
     if backend == "vastdb":
+        # Imported lazily so non-VAST installs (local/CI) never load vastdb.
+        from amplify_db_utils.vastdb_store import VastDBConfig
+
         db_cfg = VastDBConfig(
             endpoint=os.environ["IMPROV_VASTDB_ENDPOINT"],
             access_key=os.environ["IMPROV_VASTDB_ACCESS_KEY"],
@@ -79,4 +88,5 @@ def load_config() -> ImprovConfig:
         db_config=db_cfg,
         database_url=os.environ.get("IMPROV_DATABASE_URL"),
         storage=storage,
+        api_token=os.environ.get("IMPROV_API_TOKEN"),
     )

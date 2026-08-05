@@ -26,6 +26,34 @@ A **plugin system** extends provenance handling. Plugins register via dependency
 
 improv exposes a FastAPI service with endpoints for image data and metadata, provenance, instruments, samples, datasets, and ingest task tracking. Classifier support adds taxonomy registration/lookup and two decode paths: a stateless decode (caller supplies a vector) and a decoded read that fetches an image's classification provenance and resolves each record against its own `model_version`. A thin HTTP client (`improv.client.ImprovClient`) is provided for ingest scripts that need OLTP access without direct database credentials, including taxonomy registration.
 
+## Authentication
+
+The service authenticates with a single shared bearer token, supplied as `IMPROV_API_TOKEN`. It is **required** — `create_app` refuses to start without it rather than silently serving an unprotected API.
+
+```bash
+export IMPROV_API_TOKEN='...'   # generate with: python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+Callers pass it as `Authorization: Bearer <token>`. Missing or invalid token → `401`; a valid token lacking the required scope → `403`.
+
+Protection is declared per endpoint by scope, not inferred from the HTTP verb:
+
+| Surface | Auth |
+|---------|------|
+| All writes (image ingest, provenance ingest, instrument/sample/dataset/taxonomy registration, ingest-task create/update/delete) | `write` scope |
+| Ingest-task read, classifier decode | `read` scope |
+| Image bytes, blobs, metadata, image/sample search, provenance reads, dataset and instrument lookup, taxonomy lookup | **open** — no token |
+
+Reads of image and provenance data are deliberately open: the service is deployed inside the on-prem network and the token exists to gate mutation and the ingest-coordination surface, not to keep science data private. Deployments needing read authentication should put the service behind a reverse proxy, or add `require_scope(READ)` to the read routes.
+
+Token handling is swappable. `improv.api.auth` defines a `TokenVerifier` protocol whose only implementation today is `StaticTokenVerifier`; moving to per-client tokens with real per-token scopes means adding a DB-backed verifier and changing the single construction site in `create_app` — routes are untouched.
+
+`ImprovClient` reads `IMPROV_API_TOKEN` from the environment by default, or takes it explicitly:
+
+```python
+ImprovClient("http://improv.example:8000", token="...")
+```
+
 ## Ingest architecture
 
 Batch producers (ingest pipelines, classifiers) use a hybrid approach:
