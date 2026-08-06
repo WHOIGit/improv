@@ -93,6 +93,47 @@ def test_no_match_partial(parser):
     assert parser.parse("D20240101T120000") is None
 
 
+# ---- Shape matches, values out of range ----
+#
+# The regexes constrain digit count, not range. These IDs reach the datetime
+# construction, which must yield None rather than raising — an escaping
+# ValueError surfaces as a 500 on the ingest path.
+
+
+@pytest.mark.parametrize(
+    "image_id",
+    [
+        "D20240115T120097_IFCB107_00061",  # second 97
+        "D20240115T129900_IFCB107_00001",  # minute 99
+        "D20240115T990000_IFCB107_00001",  # hour 99
+        "D20241315T120000_IFCB107_00001",  # month 13
+        "D20240132T120000_IFCB107_00001",  # day 32 in January
+        "D20230229T120000_IFCB107_00001",  # Feb 29 in a non-leap year
+    ],
+)
+def test_new_format_out_of_range_returns_none(parser, image_id):
+    assert parser.parse(image_id) is None
+
+
+@pytest.mark.parametrize(
+    "image_id",
+    [
+        "IFCB1_2014_123_997700_00001",  # hour 99
+        "IFCB1_2014_123_009977_00001",  # second 77
+        "IFCB1_2014_000_093500_00001",  # day of year 0
+        "IFCB1_2014_999_093500_00001",  # day of year 999 — must not roll years
+        "IFCB1_2014_366_093500_00001",  # day 366 in a non-leap year
+    ],
+)
+def test_old_format_out_of_range_returns_none(parser, image_id):
+    assert parser.parse(image_id) is None
+
+
+def test_old_format_doy_does_not_roll_into_a_later_year(parser):
+    """doy 999 previously parsed as 2016-09-25 — a plausible but wrong date."""
+    assert parser.parse("IFCB1_2014_999_093500_00001") is None
+
+
 # ---- Integration with make_partition_keys ----
 
 

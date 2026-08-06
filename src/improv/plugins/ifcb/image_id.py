@@ -43,7 +43,13 @@ class IFCBImageIdParser:
     """ImageIdParser implementation for IFCB instruments."""
 
     def parse(self, image_id: str) -> ImageIdParts | None:
-        """Parse an IFCB image or sample ID into instrument + timestamp."""
+        """Parse an IFCB image or sample ID into instrument + timestamp.
+
+        Returns None for anything that is not a valid IFCB ID, including IDs
+        that match the shape but carry out-of-range date or time components
+        (e.g. a seconds field of 97). The regexes constrain digit *count*, not
+        range, so the datetime construction below is what actually validates.
+        """
         m = _NEW_RE.match(image_id)
         if m:
             year, month, day, hour, minute, second, instrument = (
@@ -55,7 +61,12 @@ class IFCBImageIdParser:
                 int(m.group(6)),
                 m.group(7),
             )
-            ts = datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+            try:
+                ts = datetime(
+                    year, month, day, hour, minute, second, tzinfo=timezone.utc
+                )
+            except ValueError:
+                return None
             return ImageIdParts(instrument=instrument, timestamp=ts)
 
         m = _OLD_RE.match(image_id)
@@ -64,8 +75,21 @@ class IFCBImageIdParser:
             year = int(m.group(2))
             doy = int(m.group(3))
             hour, minute, second = int(m.group(4)), int(m.group(5)), int(m.group(6))
-            # day-of-year → month/day
-            ts = datetime(year, 1, 1, hour, minute, second, tzinfo=timezone.utc) + timedelta(days=doy - 1)
+            # Bound the day of year before adding it: timedelta happily rolls
+            # into the following year, so an unchecked doy of 999 would parse
+            # as a plausible-looking date three years later.
+            if not 1 <= doy <= 366:
+                return None
+            try:
+                start = datetime(
+                    year, 1, 1, hour, minute, second, tzinfo=timezone.utc
+                )
+            except ValueError:
+                return None
+            ts = start + timedelta(days=doy - 1)
+            if ts.year != year:
+                # doy 366 in a non-leap year.
+                return None
             return ImageIdParts(instrument=instrument, timestamp=ts)
 
         return None

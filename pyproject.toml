@@ -30,6 +30,9 @@ service = [
     "alembic",
     "click",
     "improv[db]",
+    # [s3] adds boto3/aiobotocore for the S3-backed object store. Same pinned
+    # tag as the base dependency above.
+    "amplify-storage-utils[s3] @ git+https://github.com/WHOIGit/amplify-storage-utils.git@v1.7.0",
 ]
 dev = [
     "pytest",

@@ -1,8 +1,8 @@
 """API test fixtures.
 
-Builds a bare FastAPI app with routers but no lifespan, injecting the service
-directly via app.state. This avoids SQLite threading issues and keeps tests
-independent of production startup logic.
+Builds a bare FastAPI app with routers but no lifespan, publishing the same
+``app.state`` components ``create_app`` does — store, session_factory, config —
+so route dependencies exercise the production per-request session path.
 """
 
 from __future__ import annotations
@@ -17,10 +17,10 @@ from sqlalchemy.orm import sessionmaker
 
 from improv.api.auth import StaticTokenVerifier
 from improv.api.routers import blobs, classification, datasets, images, ingest_tasks, instruments, provenance, samples
+from improv.config import ImprovConfig
 from improv.oltp.models import Base
 from improv.plugins.geolocation import GeoLocationPlugin
 from improv.plugins.sample_context import SampleContextPlugin
-from improv.service import ImageService
 from improv.store.tables import register_service_tables
 
 from tests.conftest import AlphaParser, BetaParser
@@ -34,8 +34,8 @@ def client(tmp_path):
     db_config = DuckDBParquetConfig(root=str(tmp_path / "store"))
     store = DuckDBParquetStore(db_config)
 
-    # StaticPool + check_same_thread=False: single shared connection so all
-    # create_all / session calls see the same in-memory SQLite database.
+    # StaticPool + check_same_thread=False: one shared connection so every
+    # per-request Session sees the same in-memory SQLite database.
     from sqlalchemy.pool import StaticPool
     engine = create_engine(
         "sqlite:///:memory:",
@@ -43,22 +43,20 @@ def client(tmp_path):
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
 
     plugins = [GeoLocationPlugin(), SampleContextPlugin()]
     parsers = [AlphaParser(), BetaParser()]
     register_service_tables(store, plugins)
 
-    service = ImageService(
-        store=store,
-        session=session,
+    app = FastAPI()
+    app.state.store = store
+    app.state.session_factory = sessionmaker(bind=engine)
+    app.state.config = ImprovConfig(
+        db_config=db_config,
+        database_url="sqlite:///:memory:",
         parsers=parsers,
         plugins=plugins,
     )
-
-    app = FastAPI()
-    app.state.service = service
     app.state.verifier = StaticTokenVerifier(TEST_TOKEN)
     app.include_router(images.router)
     app.include_router(provenance.router)
@@ -72,3 +70,5 @@ def client(tmp_path):
     with TestClient(app) as c:
         c.headers["Authorization"] = f"Bearer {TEST_TOKEN}"
         yield c
+
+    engine.dispose()
