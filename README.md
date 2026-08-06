@@ -44,7 +44,7 @@ Protection is declared per endpoint by scope, not inferred from the HTTP verb:
 | Ingest-task read, classifier decode | `read` scope |
 | Image bytes, blobs, metadata, image/sample search, provenance reads, dataset and instrument lookup, taxonomy lookup | **open** — no token |
 
-Reads of image and provenance data are deliberately open: the service is deployed inside the on-prem network and the token exists to gate mutation and the ingest-coordination surface, not to keep science data private. Deployments needing read authentication should put the service behind a reverse proxy, or add `require_scope(READ)` to the read routes.
+Reads of image and provenance data are deliberately open. Deployments needing read authentication should put the service behind a reverse proxy, or add `require_scope(READ)` to the read routes.
 
 Token handling is swappable. `improv.api.auth` defines a `TokenVerifier` protocol whose only implementation today is `StaticTokenVerifier`; moving to per-client tokens with real per-token scopes means adding a DB-backed verifier and changing the single construction site in `create_app` — routes are untouched.
 
@@ -150,23 +150,25 @@ later as empty query results.
 |----------|-------|
 | `IMPROV_API_TOKEN` | **Required.** See Authentication above |
 
-### Concurrency
+### Docker
 
-Every route handler is synchronous, so FastAPI runs them in a threadpool. The
-SQLAlchemy `Session` is therefore created **per request** (see
-`improv.api.deps.get_service`) — a `Session` is not thread-safe, and running
-more worker processes does not help, since each process would still share one
-`Session` across its own threadpool. The columnar store, parsers, plugins and
-object store are shared process-wide.
+Two containers — the uvicorn API and Postgres — with the reverse proxy outside
+Docker. `.env` is the entire configuration mechanism: the application reads
+`os.environ` directly, with no dotenv support of its own.
 
-> **The DuckDB+Parquet backend is not safe under concurrent reads.**
-> `DuckDBParquetStore` issues every query on one shared DuckDB connection, and
-> `read()` is a generator, so concurrent (or merely interleaved) reads clobber
-> each other's result set and silently return no rows. Measured at 20 threads:
-> ~40–50% of reads returned empty for a record that was present. This is a
-> property of `amplify-db-utils`, independent of improv. Until it is fixed
-> upstream, treat the DuckDB backend as single-threaded/development-only and use
-> VAST DB for any concurrent deployment.
+```bash
+cp .env.example .env && chmod 600 .env   # then fill it in
+docker compose up -d --build
+```
+
+Bring-up order is enforced rather than assumed: `db` must pass `pg_isready`,
+then the one-shot `migrate` service runs `improv db upgrade` to completion, then
+`api` starts. Nothing self-creates schema — Alembic owns it — so a schema change
+is deployed by rebuilding and running `up` again, which re-runs `migrate` as a
+no-op when already at head.
+
+The API publishes on `127.0.0.1:8000` only. Postgres publishes no port at all
+(`docker compose exec db psql -U improv` to reach it).
 
 ## Dependencies
 

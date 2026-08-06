@@ -44,3 +44,9 @@ improv = "improv.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# The Alembic revision template is not a .py file, so package discovery misses
+# it. `improv db upgrade` does not need it, but `alembic revision` does — without
+# this, autogenerate only works from a source checkout, not an installed wheel.
+[tool.setuptools.package-data]
+"improv.oltp.migrations" = ["script.py.mako"]
