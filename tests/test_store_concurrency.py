@@ -4,19 +4,18 @@ Every API route handler is a sync ``def``, so FastAPI runs them in a threadpool
 and the process-wide store is read from many threads at once. This module pins
 what that actually does.
 
-The DuckDB+Parquet backend does not survive it: ``DuckDBParquetStore`` issues
-every query on one shared DuckDB connection (``duckdb_parquet.py`` ``read``
-does ``cursor = self._conn.execute(...)``, and ``DuckDBPyConnection.execute``
-returns the connection itself, holding a single result set). Because ``read()``
-is a generator, fetching interleaves with the caller's consumption, so a second
-query replaces the first's pending result and the first returns no rows.
+This used to fail. ``DuckDBParquetStore`` issued every query on one shared
+DuckDB connection, and a connection holds exactly one pending result, so a
+second query silently discarded the first's remaining rows — which corrupts a
+lazy generator like ``read()`` whenever two are interleaved or run from
+different threads. It failed as wrong data, never as an error: ~49 of 100
+concurrent reads returned nothing for a record that was present.
 
-That is silent wrong data, not an error. The upstream fix is to take an
-independent ``self._conn.cursor()`` per call; verified locally to take the
-failure rate from ~49/100 to 0/100.
-
-The xfail below is non-strict so it flips to XPASS — not a failure — once
-amplify-db-utils is fixed. When that happens, drop the marker.
+Fixed upstream in amplify-db-utils v0.1.1, which takes a fresh
+``self._conn.cursor()`` per query (and re-applies LOCAL-scope settings to it,
+which a bare ``cursor()`` would drop). Keep this test: the failure mode is
+invisible without it, and every API route handler is a sync ``def``, so the
+process-wide store really is read from many threads at once in production.
 """
 
 from __future__ import annotations
@@ -67,12 +66,6 @@ def test_single_threaded_read_is_reliable(populated_store):
     assert all(_read_once(populated_store) for _ in range(READS))
 
 
-@pytest.mark.xfail(
-    reason="DuckDBParquetStore shares one DuckDB connection across threads; "
-    "concurrent reads clobber each other's result set and return no rows. "
-    "Fix upstream in amplify-db-utils with a per-call self._conn.cursor().",
-    strict=False,
-)
 def test_concurrent_reads_are_reliable(populated_store):
     """Concurrent reads of a present record must all find it."""
     with cf.ThreadPoolExecutor(max_workers=THREADS) as ex:

@@ -281,8 +281,8 @@ wheels = [
 
 [[package]]
 name = "amplify-db-utils"
-version = "0.1.0"
-source = { git = "https://github.com/WHOIGit/amplify-db-utils.git#ac0de125abf9d18d552246d1f024c2b7496183fe" }
+version = "0.1.1"
+source = { git = "https://github.com/WHOIGit/amplify-db-utils.git?rev=v0.1.1#49fe23a70b8e164e778b64615763376488102bcc" }
 dependencies = [
     { name = "duckdb" },
     { name = "pyarrow" },
@@ -980,8 +980,8 @@ vastdb = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", marker = "extra == 'service'" },
-    { name = "amplify-db-utils", git = "https://github.com/WHOIGit/amplify-db-utils.git" },
-    { name = "amplify-db-utils", extras = ["vastdb"], marker = "extra == 'vastdb'", git = "https://github.com/WHOIGit/amplify-db-utils.git" },
+    { name = "amplify-db-utils", git = "https://github.com/WHOIGit/amplify-db-utils.git?rev=v0.1.1" },
+    { name = "amplify-db-utils", extras = ["vastdb"], marker = "extra == 'vastdb'", git = "https://github.com/WHOIGit/amplify-db-utils.git?rev=v0.1.1" },
     { name = "amplify-storage-utils", git = "https://github.com/WHOIGit/amplify-storage-utils.git?rev=v1.7.0" },
     { name = "amplify-storage-utils", extras = ["s3"], marker = "extra == 'service'", git = "https://github.com/WHOIGit/amplify-storage-utils.git?rev=v1.7.0" },
     { name = "click", marker = "extra == 'service'" },

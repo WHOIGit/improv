@@ -12,7 +12,7 @@ dependencies = [
     "pyarrow>=14.0",
     "rfc8785>=0.1",
     "httpx",
-    "amplify-db-utils @ git+https://github.com/WHOIGit/amplify-db-utils.git",
+    "amplify-db-utils @ git+https://github.com/WHOIGit/amplify-db-utils.git@v0.1.1",
     "amplify-storage-utils @ git+https://github.com/WHOIGit/amplify-storage-utils.git@v1.7.0",
 ]
 
@@ -22,7 +22,7 @@ db = [
     "psycopg2-binary",
 ]
 vastdb = [
-    "amplify-db-utils[vastdb] @ git+https://github.com/WHOIGit/amplify-db-utils.git",
+    "amplify-db-utils[vastdb] @ git+https://github.com/WHOIGit/amplify-db-utils.git@v0.1.1",
 ]
 service = [
     "fastapi",
