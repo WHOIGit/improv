@@ -23,10 +23,12 @@ services:
   db:
     image: postgres:16
     restart: unless-stopped
-    env_file: .env
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?set POSTGRES_USER in .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+      POSTGRES_DB: "${POSTGRES_DB:?set POSTGRES_DB in .env}"
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # Deliberately no published port — reach it with `docker compose exec db psql`.
     healthcheck:
       # $$ escapes compose interpolation so the shell inside the container expands it.
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
@@ -72,7 +74,7 @@ services:
     # Uncomment if the VAST endpoints use an internally-signed certificate. Set
     # SSL_CERT_FILE and REQUESTS_CA_BUNDLE in .env to the container path.
     # volumes:
-    #   - /etc/ssl/certs/whoi-internal-ca.crt:/etc/ssl/certs/whoi-internal-ca.crt:ro
+    #   - /etc/ssl/certs/example-internal-ca.crt:/etc/ssl/certs/example-internal-ca.crt:ro
 
 volumes:
   pgdata:
