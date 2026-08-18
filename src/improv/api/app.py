@@ -73,7 +73,12 @@ def create_app(config: "ImprovConfig") -> FastAPI:
         # Schema is owned by Alembic (`improv db upgrade`), not by startup:
         # create_all here would leave alembic_version unstamped and let the
         # real schema drift from the migration history.
-        engine = create_engine(config.database_url)
+        #
+        # pool_pre_ping: pooled connections go stale when Postgres restarts or a
+        # firewall/idle timeout drops them. Without it the first request to grab a
+        # stale connection fails and only then is it recycled. The pre-checkout
+        # liveness probe costs ~0.1ms per checkout — cheap next to a 500.
+        engine = create_engine(config.database_url, pool_pre_ping=True)
 
         register_service_tables(store, config.plugins)
 

@@ -53,6 +53,14 @@ def test_lifespan_registers_tables_and_state(config):
             assert store.get_schema(table) is not None
 
 
+def test_engine_pre_pings_pooled_connections(config):
+    """Stale pooled connections must be recycled before a request sees them."""
+    app = create_app(config)
+    with TestClient(app):
+        engine = app.state.session_factory.kw["bind"]
+        assert engine.pool._pre_ping is True
+
+
 def test_healthz_is_open_and_shallow(config):
     app = create_app(config)
     with TestClient(app) as client:
