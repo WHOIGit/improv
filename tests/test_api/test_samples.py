@@ -12,18 +12,20 @@ IMAGE_ID = "ALPHA_20240115T120000_001"
 
 
 def setup_sample(client):
-    """Register instrument + sample and ingest an image via the service directly."""
-    service = client.app.state.service
-    session = service._session
-    register_instrument(session, "ALPHA", "TestCam", DEPLOY_START)
-    register_sample(
-        session,
-        "SAMPLE_001",
-        "ALPHA",
-        datetime(2024, 1, 15, 11, 0, tzinfo=timezone.utc),
-        datetime(2024, 1, 15, 13, 0, tzinfo=timezone.utc),
-    )
-    session.commit()
+    """Register instrument + sample directly in the DB, then ingest an image."""
+    session = client.app.state.session_factory()
+    try:
+        register_instrument(session, "ALPHA", "TestCam", DEPLOY_START)
+        register_sample(
+            session,
+            "SAMPLE_001",
+            "ALPHA",
+            datetime(2024, 1, 15, 11, 0, tzinfo=timezone.utc),
+            datetime(2024, 1, 15, 13, 0, tzinfo=timezone.utc),
+        )
+        session.commit()
+    finally:
+        session.close()
 
     client.post(
         "/images/ingest",

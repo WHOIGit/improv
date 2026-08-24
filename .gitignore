@@ -23,6 +23,11 @@ htmlcov/
 *.tar.gz
 MANIFEST
 
+# Secrets — the compose env_file. Ship .env.example instead.
+.env
+.env.*
+!.env.example
+
 # Editor / OS
 .DS_Store
 *.swp

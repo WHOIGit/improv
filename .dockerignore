@@ -1,0 +1,55 @@
+# Keep the build context small and the install clean.
+#
+# Only pyproject.toml, uv.lock and src/ are actually needed to build the image.
+
+# Virtualenvs — never copy a host venv into an image; the wheels are
+# platform-specific and it defeats the point of the builder stage.
+.venv/
+venv/
+env/
+
+# Build/install artifacts that would shadow the container's own install
+*.egg-info/
+src/*.egg-info/
+build/
+dist/
+*.whl
+*.tar.gz
+__pycache__/
+*.py[cod]
+
+# Secrets — must never enter an image layer. Also gitignored.
+.env
+.env.*
+!.env.example
+
+# Version control and tooling
+.git/
+.gitignore
+.github/
+.claude/
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# Docs and local notes — not needed at runtime
+design-docs/
+DOCKER_PLAN.md
+
+# Tests are not installed into the image; run them in CI or on the host.
+tests/
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Container artifacts themselves
+Dockerfile
+docker-compose.yml
+docker-compose.*.yml
+.dockerignore

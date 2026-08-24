@@ -126,14 +126,26 @@ def test_verifier_rejects_non_ascii_token():
 def test_create_app_requires_token(tmp_path):
     config = ImprovConfig(
         db_config=DuckDBParquetConfig(root=str(tmp_path / "store")),
+        database_url="sqlite:///:memory:",
     )
     with pytest.raises(RuntimeError, match="IMPROV_API_TOKEN"):
+        create_app(config)
+
+
+def test_create_app_requires_database_url(tmp_path):
+    """No OLTP URL must fail loudly, not fall back to in-memory SQLite."""
+    config = ImprovConfig(
+        db_config=DuckDBParquetConfig(root=str(tmp_path / "store")),
+        api_token="wired-token",
+    )
+    with pytest.raises(RuntimeError, match="IMPROV_DATABASE_URL"):
         create_app(config)
 
 
 def test_create_app_installs_verifier(tmp_path):
     config = ImprovConfig(
         db_config=DuckDBParquetConfig(root=str(tmp_path / "store")),
+        database_url="sqlite:///:memory:",
         api_token="wired-token",
     )
     app = create_app(config)

@@ -1,0 +1,80 @@
+# improv REST service + Postgres.
+#
+# The reverse proxy lives outside Docker, so the API binds to 127.0.0.1 only.
+# All configuration comes from .env — copy .env.example and fill it in.
+#
+#   docker compose up -d --build
+#
+# Bring-up order is enforced: db becomes healthy, migrate runs to completion,
+# then api starts. Nothing self-creates schema; Alembic owns it.
+
+name: improv
+
+x-improv-image: &improv-image
+  image: improv:local
+  build:
+    context: .
+    args:
+      # Must match the owner of any bind-mounted IMPROV_STORAGE_PATH.
+      UID: "${IMPROV_UID:-1000}"
+      GID: "${IMPROV_GID:-1000}"
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?set POSTGRES_USER in .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+      POSTGRES_DB: "${POSTGRES_DB:?set POSTGRES_DB in .env}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # $$ escapes compose interpolation so the shell inside the container expands it.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # One-shot. Idempotent: a second `up` re-runs it and it exits 0 with nothing
+  # to do, because `improv db upgrade` is a no-op at head.
+  migrate:
+    <<: *improv-image
+    env_file: .env
+    command: ["improv", "db", "upgrade"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *improv-image
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # Host-only. The reverse proxy on the host connects here; nothing else can.
+    ports:
+      - "127.0.0.1:8000:8000"
+    # uvicorn's supervisor reaps its own workers, but init gives a real PID 1 to
+    # reap anything else, and the grace period lets in-flight requests drain.
+    init: true
+    stop_grace_period: 30s
+    # Healthcheck and command come from the image. Worker count is WEB_CONCURRENCY
+    # and the proxy allowlist is FORWARDED_ALLOW_IPS — both set in .env, so
+    # neither needs a command override here.
+
+    # Uncomment for the filesystem object store instead of VAST S3. The path must
+    # be writable by UID:GID above.
+    # volumes:
+    #   - /mnt/vast/improv-objects:/data/objects
+
+    # Uncomment if the VAST endpoints use an internally-signed certificate. Set
+    # SSL_CERT_FILE and REQUESTS_CA_BUNDLE in .env to the container path.
+    # volumes:
+    #   - /etc/ssl/certs/example-internal-ca.crt:/etc/ssl/certs/example-internal-ca.crt:ro
+
+volumes:
+  pgdata:

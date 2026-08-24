@@ -44,7 +44,7 @@ Protection is declared per endpoint by scope, not inferred from the HTTP verb:
 | Ingest-task read, classifier decode | `read` scope |
 | Image bytes, blobs, metadata, image/sample search, provenance reads, dataset and instrument lookup, taxonomy lookup | **open** — no token |
 
-Reads of image and provenance data are deliberately open: the service is deployed inside the on-prem network and the token exists to gate mutation and the ingest-coordination surface, not to keep science data private. Deployments needing read authentication should put the service behind a reverse proxy, or add `require_scope(READ)` to the read routes.
+Reads of image and provenance data are deliberately open. Deployments needing read authentication should put the service behind a reverse proxy, or add `require_scope(READ)` to the read routes.
 
 Token handling is swappable. `improv.api.auth` defines a `TokenVerifier` protocol whose only implementation today is `StaticTokenVerifier`; moving to per-client tokens with real per-token scopes means adding a DB-backed verifier and changing the single construction site in `create_app` — routes are untouched.
 
@@ -77,8 +77,98 @@ The provenance log is append-only, so writes are never overwritten — idempoten
 ```bash
 pip install .            # base — columnar store, object store, models, client
 pip install '.[db]'      # adds SQLAlchemy for direct OLTP access
-pip install '.[service]' # adds FastAPI, CLI, migrations
+pip install '.[service]' # adds FastAPI, CLI, migrations, S3 object store
+pip install '.[vastdb]'  # adds the VAST DB columnar backend
 ```
+
+## Running the service
+
+The service is configured entirely from the environment. `improv.asgi:app`
+builds it by calling `load_config()` and `create_app()`.
+
+```bash
+# Schema is owned by Alembic — run migrations before serving.
+improv db upgrade
+
+uvicorn improv.asgi:app --host 0.0.0.0 --port 8000 --workers 4 \
+        --proxy-headers --forwarded-allow-ips=<reverse-proxy-ip>
+```
+
+`--proxy-headers` matters whenever a reverse proxy terminates the connection;
+without it the client IP and scheme the app sees are the proxy's.
+
+`GET /healthz` is open and shallow — it touches neither Postgres nor the
+columnar store, so it reports process liveness rather than dependency health.
+
+### Environment variables
+
+**Columnar store**
+
+| Variable | Notes |
+|----------|-------|
+| `IMPROV_DB_BACKEND` | `duckdb` (default) or `vastdb` |
+| `IMPROV_DB_ROOT` | duckdb: local path or `s3://bucket/prefix` — **required** |
+| `IMPROV_S3_ENDPOINT` | duckdb on S3: bare `host:port`, e.g. `vast-s3.whoi.edu:9000` |
+| `IMPROV_S3_ACCESS_KEY`, `IMPROV_S3_SECRET_KEY` | duckdb on S3 |
+| `IMPROV_S3_USE_SSL` | set `false` for an http-only endpoint |
+| `IMPROV_DUCKDB_THREADS` | DuckDB thread count; default is all cores |
+| `IMPROV_VASTDB_ENDPOINT` | vastdb — **required** |
+| `IMPROV_VASTDB_ACCESS_KEY`, `IMPROV_VASTDB_SECRET_KEY` | vastdb — **required** |
+| `IMPROV_VASTDB_BUCKET`, `IMPROV_VASTDB_SCHEMA` | vastdb — **required** |
+
+**OLTP database**
+
+| Variable | Notes |
+|----------|-------|
+| `IMPROV_DATABASE_URL` | SQLAlchemy URL, e.g. `postgresql+psycopg2://user:pass@host/improv`. **Required** to serve — the service refuses to start without it rather than falling back to a throwaway in-memory database |
+
+**Plugins and parsers**
+
+Comma-separated names, instantiated in order. An unknown name fails startup:
+a plugin that is configured but not registered would leave its index table
+missing and its provenance kind unindexed, which otherwise only shows up much
+later as empty query results.
+
+| Variable | Available values |
+|----------|------------------|
+| `IMPROV_PLUGINS` | `geolocation`, `sample_context`, `blob`, `machine_classification`, `ifcb_features`, `ifcb_cnn_classification` |
+| `IMPROV_PARSERS` | `ifcb` |
+
+**Object store** — at most one; S3 wins if both are configured.
+
+| Variable | Notes |
+|----------|-------|
+| `IMPROV_OBJECT_BUCKET` | bucket for image bytes and blobs; selects the S3 backend |
+| `IMPROV_OBJECT_S3_ENDPOINT` | full URL **with scheme**, e.g. `https://vast-s3.whoi.edu` — note this differs from `IMPROV_S3_ENDPOINT`, which DuckDB and PyArrow want as a bare `host:port` |
+| `IMPROV_OBJECT_S3_ACCESS_KEY`, `IMPROV_OBJECT_S3_SECRET_KEY` | |
+| `IMPROV_OBJECT_S3_CA_BUNDLE` | CA bundle path for an internally-signed endpoint |
+| `IMPROV_STORAGE_PATH` | local/NFS path, selects `HashdirStore` instead |
+
+**Auth**
+
+| Variable | Notes |
+|----------|-------|
+| `IMPROV_API_TOKEN` | **Required.** See Authentication above |
+
+### Docker
+
+Two containers — the uvicorn API and Postgres — with the reverse proxy outside
+Docker. `.env` is the entire configuration mechanism: the application reads
+`os.environ` directly, with no dotenv support of its own.
+
+```bash
+cp .env.example .env && chmod 600 .env   # then fill it in
+docker compose up -d --build
+```
+
+Bring-up order is enforced rather than assumed: `db` must pass `pg_isready`,
+then the one-shot `migrate` service runs `improv db upgrade` to completion, then
+`api` starts. Nothing self-creates schema — Alembic owns it — so a schema change
+is deployed by rebuilding and running `up` again, which re-runs `migrate` as a
+no-op when already at head.
+
+The API publishes on `127.0.0.1:8000` only. Postgres publishes no port at all
+(`docker compose exec db psql -U improv` to reach it).
 
 ## Dependencies
 
