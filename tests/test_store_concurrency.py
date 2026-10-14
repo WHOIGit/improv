@@ -27,7 +27,7 @@ import pytest
 from amplify_db_utils import DuckDBParquetConfig, DuckDBParquetStore
 
 from improv.models.image import ImageRecord
-from improv.store.tables import register_service_tables
+from improv.store.tables import create_service_tables
 
 TS = datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc)
 IMAGE_ID = "D20240115T120000_IFCB107_00001"
@@ -40,7 +40,7 @@ READS = 64
 @pytest.fixture
 def populated_store(tmp_path):
     store = DuckDBParquetStore(DuckDBParquetConfig(root=str(tmp_path / "store")))
-    register_service_tables(store, [])
+    create_service_tables(store, [])
     store.write(
         "images",
         [

@@ -14,7 +14,7 @@ from improv.oltp.models import Base
 from improv.plugins.geolocation import GeoLocationPlugin
 from improv.plugins.sample_context import SampleContextPlugin
 from improv.service import ImageService
-from improv.store.tables import register_service_tables
+from improv.store.tables import create_service_tables
 
 import os
 import uuid
@@ -114,7 +114,7 @@ def store(request, tmp_path):
 @pytest.fixture
 def store_with_tables(store, parsers):
     plugins = [GeoLocationPlugin(), SampleContextPlugin()]
-    register_service_tables(store, plugins)
+    create_service_tables(store, plugins)
     return store
 
 

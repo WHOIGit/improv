@@ -21,7 +21,7 @@ from improv.config import ImprovConfig
 from improv.oltp.models import Base
 from improv.plugins.geolocation import GeoLocationPlugin
 from improv.plugins.sample_context import SampleContextPlugin
-from improv.store.tables import register_service_tables
+from improv.store.tables import create_service_tables
 
 from tests.conftest import AlphaParser, BetaParser
 
@@ -46,7 +46,7 @@ def client(tmp_path):
 
     plugins = [GeoLocationPlugin(), SampleContextPlugin()]
     parsers = [AlphaParser(), BetaParser()]
-    register_service_tables(store, plugins)
+    create_service_tables(store, plugins)
 
     app = FastAPI()
     app.state.store = store
