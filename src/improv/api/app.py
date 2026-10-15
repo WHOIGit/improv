@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 def create_app(config: "ImprovConfig") -> FastAPI:
     """Create and configure the FastAPI application.
 
-    Registers service tables at startup via lifespan and publishes the
+    Declares the service tables at startup via lifespan — declares, not
+    creates: run ``improv schema sync`` before serving. Publishes the
     long-lived components on ``app.state`` for route dependencies to consume:
 
       ``app.state.store``            columnar store, shared process-wide
@@ -27,13 +28,13 @@ def create_app(config: "ImprovConfig") -> FastAPI:
     SQLAlchemy Session is *not* shared: it is not thread-safe, and every route
     is a sync ``def`` that FastAPI runs in a threadpool.
     """
-    from amplify_db_utils import DuckDBParquetStore, DuckDBParquetConfig
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
     from improv.api.auth import StaticTokenVerifier
     from improv.api.routers import blobs, classification, datasets, images, ingest_tasks, instruments, provenance, samples
-    from improv.store.tables import register_service_tables
+    from improv.store.build import build_store
+    from improv.store.tables import declare_service_tables, verify_service_tables
 
     if not config.api_token:
         raise RuntimeError(
@@ -50,25 +51,7 @@ def create_app(config: "ImprovConfig") -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # DuckDB checked first so non-VAST deployments never import vastdb.
-        if isinstance(config.db_config, DuckDBParquetConfig):
-            store = DuckDBParquetStore(config.db_config)
-        else:
-            try:
-                from amplify_db_utils.vastdb_store import VastDBConfig, VastDBStore
-            except ImportError:
-                # vastdb not installed, so db_config cannot be a VastDBConfig —
-                # report the config error rather than the missing driver.
-                raise RuntimeError(
-                    f"Unsupported db_config type: {type(config.db_config).__name__}"
-                )
-
-            if isinstance(config.db_config, VastDBConfig):
-                store = VastDBStore(config.db_config)
-            else:
-                raise RuntimeError(
-                    f"Unsupported db_config type: {type(config.db_config).__name__}"
-                )
+        store = build_store(config)
 
         # Schema is owned by Alembic (`improv db upgrade`), not by startup:
         # create_all here would leave alembic_version unstamped and let the
@@ -80,7 +63,21 @@ def create_app(config: "ImprovConfig") -> FastAPI:
         # liveness probe costs ~0.1ms per checkout — cheap next to a 500.
         engine = create_engine(config.database_url, pool_pre_ping=True)
 
-        register_service_tables(store, config.plugins)
+        # Declare, do not create. The columnar schema is owned by
+        # `improv schema sync`, for the same reason the OLTP schema is owned by
+        # Alembic — and additionally because creating it here races. With
+        # WEB_CONCURRENCY > 1 this runs once per worker, concurrently, and no
+        # backend offers an atomic create-if-absent (see improv.store.tables).
+        # register_table only populates in-process metadata, so it is safe to
+        # run in every worker.
+        declare_service_tables(store, config.plugins)
+
+        # Then check the tables are actually there. Declaring is a local
+        # operation and believes whatever it is told, so without this a
+        # deployment that skipped `improv schema sync` would serve until the
+        # first write and then fail with a backend-level "table not found".
+        # This is a read, so it cannot race the way creation did.
+        verify_service_tables(store, config.plugins)
 
         app.state.store = store
         app.state.session_factory = sessionmaker(bind=engine)

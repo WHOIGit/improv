@@ -5,8 +5,9 @@
 #
 #   docker compose up -d --build
 #
-# Bring-up order is enforced: db becomes healthy, migrate runs to completion,
-# then api starts. Nothing self-creates schema; Alembic owns it.
+# Bring-up order is enforced: db becomes healthy, then migrate and schema-sync
+# both run to completion, then api starts. Nothing self-creates schema —
+# Alembic owns the OLTP side, `improv schema sync` owns the columnar side.
 
 name: improv
 
@@ -48,12 +49,41 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # One-shot, and the only thing that creates columnar tables. Deliberately
+  # separate from `migrate`: it talks to the columnar store (VAST DB or
+  # DuckDB+Parquet), not Postgres, so it needs no `db` dependency and a failure
+  # here points at the columnar backend rather than at migrations.
+  #
+  # This exists because the API cannot do it. With WEB_CONCURRENCY > 1, uvicorn
+  # forks several workers that would each run creation concurrently, and no
+  # backend offers an atomic create-if-absent — VastDB's fail_if_exists is a
+  # client-side check before an unconditional create RPC. One process, once.
+  #
+  # Idempotent: a second `up` re-runs it and it exits 0 with nothing to do.
+  # Re-run it after adding a plugin to IMPROV_PLUGINS — a `docker compose up`
+  # does this for you, but `docker compose restart api` does not. If you skip
+  # it, api refuses to start and names the missing tables rather than failing
+  # later on the first write.
+  #
+  # If IMPROV_DB_BACKEND=duckdb with a local-path IMPROV_DB_ROOT, this service
+  # needs the same bind mount as `api` — otherwise it writes the Parquet
+  # registry into its own throwaway container filesystem and `api` sees no
+  # tables. No mount is needed for an s3:// root or for VAST DB, which is why
+  # none is set here.
+  schema-sync:
+    <<: *improv-image
+    env_file: .env
+    command: ["improv", "schema", "sync"]
+    restart: "no"
+
   api:
     <<: *improv-image
     restart: unless-stopped
     env_file: .env
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      schema-sync:
         condition: service_completed_successfully
     # Host-only. The reverse proxy on the host connects here; nothing else can.
     ports:
