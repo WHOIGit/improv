@@ -12,10 +12,7 @@ dependencies = [
     "pyarrow>=14.0",
     "rfc8785>=0.1",
     "httpx",
-    # amplify-db-utils v0.1.1 calls DuckDB's .arrow(), removed in duckdb 2.0.
-    # Drop this cap once improv moves to an amplify-db-utils that supports 2.x.
-    "duckdb<2",
-    "amplify-db-utils @ git+https://github.com/WHOIGit/amplify-db-utils.git@v0.1.1",
+    "amplify-db-utils @ git+https://github.com/WHOIGit/amplify-db-utils.git@v0.2.0",
     "amplify-storage-utils @ git+https://github.com/WHOIGit/amplify-storage-utils.git@v1.7.0",
 ]
 
@@ -25,7 +22,7 @@ db = [
     "psycopg2-binary",
 ]
 vastdb = [
-    "amplify-db-utils[vastdb] @ git+https://github.com/WHOIGit/amplify-db-utils.git@v0.1.1",
+    "amplify-db-utils[vastdb] @ git+https://github.com/WHOIGit/amplify-db-utils.git@v0.2.0",
 ]
 service = [
     "fastapi",
