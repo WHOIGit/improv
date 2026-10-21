@@ -30,7 +30,11 @@ class ProvenancePlugin(Protocol):
     arrives via the REST API, the service calls extract_index_record and
     writes the result to the plugin's index table.
 
-    create_index is called at service startup (idempotent).
+    The index table itself is created by ``improv schema sync``, which reads
+    index_table / index_schema / partition_by directly (see
+    improv.store.tables). create_index is a convenience for callers holding a
+    store of their own — batch producers, tests — and is not part of the
+    service startup path, where creating tables would race across workers.
     """
 
     kind: str                               # provenance kind this plugin handles
@@ -39,7 +43,16 @@ class ProvenancePlugin(Protocol):
     partition_by: list[str]
 
     def create_index(self, store: "ColumnarStore") -> None:
-        """Register the index table with the store. Called at startup."""
+        """Create this plugin's index table in *store*.
+
+        Not called by the service — ``improv schema sync`` creates index
+        tables from the attributes above, and startup only declares them.
+        Provided for callers holding a store of their own (batch producers,
+        tests). An override that does anything other than create
+        ``index_table`` from ``index_schema``/``partition_by`` will therefore
+        not be honoured by the service; put such a table in service_tables()
+        instead.
+        """
         ...
 
     def extract_index_record(

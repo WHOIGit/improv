@@ -87,8 +87,9 @@ The service is configured entirely from the environment. `improv.asgi:app`
 builds it by calling `load_config()` and `create_app()`.
 
 ```bash
-# Schema is owned by Alembic — run migrations before serving.
-improv db upgrade
+# Neither schema is created at startup. Run both before serving.
+improv db upgrade     # OLTP schema — owned by Alembic
+improv schema sync    # columnar tables and plugin index tables
 
 uvicorn improv.asgi:app --host 0.0.0.0 --port 8000 --workers 4 \
         --proxy-headers --forwarded-allow-ips=<reverse-proxy-ip>
@@ -96,6 +97,28 @@ uvicorn improv.asgi:app --host 0.0.0.0 --port 8000 --workers 4 \
 
 `--proxy-headers` matters whenever a reverse proxy terminates the connection;
 without it the client IP and scheme the app sees are the proxy's.
+
+`improv schema sync` reads the same `IMPROV_*` variables the service does, so
+it provisions exactly the store the workers will open — including an index
+table for every plugin named in `IMPROV_PLUGINS`. Both commands are idempotent
+and exit non-zero on failure. **Re-run `improv schema sync` after adding a
+plugin to `IMPROV_PLUGINS`**, or that plugin's index table will not exist and
+its writes will fail.
+
+Startup *declares* these tables — the store needs each table's schema and
+partition keys in memory — then checks they exist and **refuses to start if any
+are missing**, naming them. Forgetting to sync is a boot failure, not a
+surprise at the first write.
+
+Startup never creates them. Creation is a single-process operation: with
+`--workers 4` the lifespan runs once per worker concurrently, and no columnar
+backend offers an atomic create-if-absent, so several workers can each observe
+an absent table and each try to create it. (VAST DB's SDK takes a
+`fail_if_exists` flag, but it gates a client-side existence check before an
+unconditional create RPC — the flag never reaches the server.) This is the same
+discipline Alembic already imposes on the OLTP side. The existence check is a
+read, so it carries no such risk — but it does mean the columnar store must be
+reachable for a worker to boot.
 
 `GET /healthz` is open and shallow — it touches neither Postgres nor the
 columnar store, so it reports process liveness rather than dependency health.
@@ -162,10 +185,15 @@ docker compose up -d --build
 ```
 
 Bring-up order is enforced rather than assumed: `db` must pass `pg_isready`,
-then the one-shot `migrate` service runs `improv db upgrade` to completion, then
-`api` starts. Nothing self-creates schema — Alembic owns it — so a schema change
-is deployed by rebuilding and running `up` again, which re-runs `migrate` as a
-no-op when already at head.
+then the one-shot `migrate` (`improv db upgrade`) and `schema-sync`
+(`improv schema sync`) services both run to completion, then `api` starts. If
+either exits non-zero, `api` never starts.
+
+Nothing self-creates schema — Alembic owns the OLTP side, `improv schema sync`
+owns the columnar side — so a schema change is deployed by rebuilding and
+running `up` again, which re-runs both one-shots as no-ops when already at
+head. Note that `docker compose restart api` does *not* re-run them: after
+changing `IMPROV_PLUGINS`, use `docker compose up -d`.
 
 The API publishes on `127.0.0.1:8000` only. Postgres publishes no port at all
 (`docker compose exec db psql -U improv` to reach it).

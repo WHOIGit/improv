@@ -282,17 +282,25 @@ def _load_storage() -> "ObjectStore | None":
     return None
 
 
-def load_config() -> ImprovConfig:
+def load_config(*, include_storage: bool = True) -> ImprovConfig:
     """Build ImprovConfig from environment variables.
 
     Raises RuntimeError on a missing required variable or an unrecognized
     backend, plugin, or parser name.
+
+    Args:
+        include_storage: When False, leave ``storage`` as None instead of
+            constructing the object store. Building it opens an S3 client or
+            touches IMPROV_STORAGE_PATH, so a caller that only needs the
+            columnar config — ``improv schema sync`` — would otherwise fail on
+            an object store it never uses, in a container that need not have
+            the storage path mounted.
     """
     return ImprovConfig(
         db_config=_load_db_config(),
         database_url=os.environ.get("IMPROV_DATABASE_URL"),
         parsers=build_parsers(_parse_names(os.environ.get("IMPROV_PARSERS"))),
         plugins=build_plugins(_parse_names(os.environ.get("IMPROV_PLUGINS"))),
-        storage=_load_storage(),
+        storage=_load_storage() if include_storage else None,
         api_token=os.environ.get("IMPROV_API_TOKEN"),
     )

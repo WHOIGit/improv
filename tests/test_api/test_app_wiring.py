@@ -7,6 +7,7 @@ only coverage of what create_app actually assembles at boot.
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 
 import pytest
 from amplify_db_utils import DuckDBParquetConfig
@@ -20,12 +21,17 @@ from improv.api.app import create_app
 from improv.api.deps import get_service
 from improv.config import ImprovConfig
 from improv.oltp.models import Base
+from improv.plugins.blob import BlobPlugin
 from improv.plugins.geolocation import GeoLocationPlugin
+from improv.plugins.ifcb.features import IFCBFeaturesPlugin
 from improv.plugins.sample_context import SampleContextPlugin
+from improv.store.build import build_store
+from improv.store.tables import create_service_tables
 
 
 @pytest.fixture
-def config(tmp_path):
+def unprovisioned(tmp_path):
+    """Config whose columnar store exists but has never been synced."""
     return ImprovConfig(
         db_config=DuckDBParquetConfig(root=str(tmp_path / "store")),
         database_url=f"sqlite:///{tmp_path / 'oltp.db'}",
@@ -35,22 +41,90 @@ def config(tmp_path):
     )
 
 
+@pytest.fixture
+def config(unprovisioned):
+    """The normal case: `improv schema sync` has already run.
+
+    Startup only declares tables, so every boot test needs them to exist
+    first — exactly as the compose `schema-sync` one-shot guarantees in
+    production.
+    """
+    create_service_tables(build_store(unprovisioned), unprovisioned.plugins)
+    return unprovisioned
+
+
+def _registry_path(config) -> Path:
+    return Path(config.db_config.root) / "_registry" / "tables.json"
+
+
 # --- lifespan --------------------------------------------------------------
 
-def test_lifespan_registers_tables_and_state(config):
-    """Booting must register every plugin index table, not just images/provenance."""
+def test_lifespan_declares_tables_and_state(config):
+    """Booting must declare every plugin index table, not just images/provenance."""
     app = create_app(config)
     with TestClient(app):
         assert app.state.session_factory is not None
         assert app.state.config is config
 
         store = app.state.store
-        # get_schema raises KeyError for a table that was never registered.
+        # get_schema raises KeyError for a table that was never declared.
         expected = ["images", "provenance"] + [
             p.index_table for p in config.plugins if p.index_table
         ]
         for table in expected:
             assert store.get_schema(table) is not None
+
+
+def test_lifespan_creates_nothing(config):
+    """Booting must not write the schema registry — that is schema sync's job.
+
+    With WEB_CONCURRENCY > 1 this path runs once per uvicorn worker,
+    concurrently, and no columnar backend offers an atomic create-if-absent
+    (VastDB's fail_if_exists is a client-side check before an unconditional
+    create RPC). Several workers would each see an absent table and each try
+    to create it.
+
+    The DuckDB backend stands in for both here: its registry sidecar is the
+    observable artifact of creation, written under the same unlocked
+    read-modify-write. Sync has already written it, so the test is that boot
+    leaves the bytes untouched. If this fails, startup has regressed to
+    calling create_table and the race is back.
+    """
+    before = _registry_path(config).read_bytes()
+
+    app = create_app(config)
+    with TestClient(app):
+        pass
+
+    assert _registry_path(config).read_bytes() == before, (
+        "service startup rewrote the columnar schema registry — startup must "
+        "declare tables (register_table), never create them"
+    )
+
+
+def test_lifespan_refuses_to_start_when_tables_are_missing(unprovisioned):
+    """Skipping `improv schema sync` must fail at boot, not on the first write.
+
+    Declaring believes whatever it is told, so without the verification step
+    the service would serve until something tried to write and then fail with
+    a backend-level "table not found" pointing nowhere near the cause.
+    """
+    app = create_app(unprovisioned)
+
+    with pytest.raises(RuntimeError, match="improv schema sync"):
+        with TestClient(app):
+            pass
+
+
+def test_lifespan_refuses_to_start_when_a_plugin_index_is_missing(config):
+    """The realistic case: a plugin was added to IMPROV_PLUGINS without re-syncing."""
+    config.plugins = list(config.plugins) + [BlobPlugin(), IFCBFeaturesPlugin()]
+
+    app = create_app(config)
+
+    with pytest.raises(RuntimeError, match="ifcb_features_index"):
+        with TestClient(app):
+            pass
 
 
 def test_engine_pre_pings_pooled_connections(config):
