@@ -278,18 +278,28 @@ class ImageService:
         instrument: str,
         time_start: "datetime",
         time_end: "datetime",
+        lat: float | None = None,
+        lon: float | None = None,
+        depth: float | None = None,
         quality_flag: int | None = None,
         alternate_sample_id: str | None = None,
         storage_key: str | None = None,
         meta: dict | None = None,
     ) -> "tuple[Sample, bool]":
-        """Register a sample; return (sample, created)."""
+        """Register a sample; return (sample, created).
+
+        lat/lon/depth are a single sample-level position (e.g. one IFCB
+        bin's location) — optional, since not every instrument has one.
+        """
         from improv.oltp.queries import get_sample, register_sample
         existing = get_sample(self._session, sample_id)
         if existing is not None:
             return existing, False
         sample = register_sample(
             self._session, sample_id, instrument, time_start, time_end,
+            lat=lat,
+            lon=lon,
+            depth=depth,
             quality_flag=quality_flag,
             alternate_sample_id=alternate_sample_id,
             storage_key=storage_key,
@@ -316,6 +326,9 @@ class ImageService:
                 r["instrument"],
                 r["time_start"],
                 r["time_end"],
+                lat=r.get("lat"),
+                lon=r.get("lon"),
+                depth=r.get("depth"),
                 quality_flag=r.get("quality_flag"),
                 alternate_sample_id=r.get("alternate_sample_id"),
                 storage_key=r.get("storage_key"),

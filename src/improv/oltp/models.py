@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -44,6 +44,12 @@ class Sample(Base):
     """One row per acquisition event (discrete instruments only).
 
     time_start/time_end scope columnar queries — required fields.
+    lat/lon/depth capture a single sample-level position. Added for
+    instruments (e.g. IFCB) where one sample/bin corresponds to one
+    location rather than one location per image — see the per-image
+    geolocation provenance plugin (improv.plugins.geolocation) for
+    instruments where geolocation genuinely varies per image instead.
+    Nullable: not every instrument has (or needs) a sample-level position.
     meta holds instrument state + water-source context as JSON.
     """
 
@@ -59,6 +65,9 @@ class Sample(Base):
     time_end: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    depth: Mapped[float | None] = mapped_column(Float, nullable=True)
     quality_flag: Mapped[int | None] = mapped_column(Integer, nullable=True)
     alternate_sample_id: Mapped[str | None] = mapped_column(String, nullable=True)
     storage_key: Mapped[str | None] = mapped_column(String, nullable=True)
