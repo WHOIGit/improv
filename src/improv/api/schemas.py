@@ -165,6 +165,12 @@ class SampleCreate(BaseModel):
     instrument: str
     time_start: datetime
     time_end: datetime
+    # Single sample-level position (e.g. one IFCB bin's location). Optional:
+    # not every instrument has one — some need per-image geolocation instead
+    # (see improv.plugins.geolocation), depending on image-to-sample ratio.
+    lat: float | None = None
+    lon: float | None = None
+    depth: float | None = None
     quality_flag: int | None = None
     alternate_sample_id: str | None = None
     storage_key: str | None = None
@@ -181,6 +187,9 @@ class SampleResponse(BaseModel):
     instrument: str
     time_start: datetime
     time_end: datetime
+    lat: float | None = None
+    lon: float | None = None
+    depth: float | None = None
     quality_flag: int | None
     alternate_sample_id: str | None
     storage_key: str | None

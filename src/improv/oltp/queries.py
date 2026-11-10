@@ -76,12 +76,19 @@ def register_sample(
     instrument: str,
     time_start: datetime,
     time_end: datetime,
+    lat: float | None = None,
+    lon: float | None = None,
+    depth: float | None = None,
     quality_flag: int | None = None,
     alternate_sample_id: str | None = None,
     storage_key: str | None = None,
     meta: dict | None = None,
 ) -> Sample:
-    """Create or return an existing Sample record."""
+    """Create or return an existing Sample record.
+
+    lat/lon/depth are a single sample-level position (e.g. one IFCB bin's
+    location) — optional, since not every instrument has one.
+    """
     existing = session.get(Sample, sample_id)
     if existing is not None:
         return existing
@@ -90,6 +97,9 @@ def register_sample(
         instrument=instrument,
         time_start=time_start,
         time_end=time_end,
+        lat=lat,
+        lon=lon,
+        depth=depth,
         quality_flag=quality_flag,
         alternate_sample_id=alternate_sample_id,
         storage_key=storage_key,

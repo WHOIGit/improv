@@ -118,12 +118,20 @@ class ImprovClient:
         instrument: str,
         time_start: datetime,
         time_end: datetime,
+        lat: float | None = None,
+        lon: float | None = None,
+        depth: float | None = None,
         quality_flag: int | None = None,
         alternate_sample_id: str | None = None,
         storage_key: str | None = None,
         metadata: dict | None = None,
     ) -> tuple[dict, bool]:
         """Register a sample. Returns (sample_dict, created).
+
+        lat/lon/depth are a single sample-level position (e.g. one IFCB
+        bin's location) — optional, since not every instrument has one;
+        some need per-image geolocation instead (see the geolocation
+        provenance plugin), depending on image-to-sample ratio.
 
         Returns created=False if the sample already exists (409).
         This is the idempotency gate for ingest scripts — if created=False,
@@ -136,6 +144,9 @@ class ImprovClient:
                 "instrument": instrument,
                 "time_start": time_start.isoformat(),
                 "time_end": time_end.isoformat(),
+                "lat": lat,
+                "lon": lon,
+                "depth": depth,
                 "quality_flag": quality_flag,
                 "alternate_sample_id": alternate_sample_id,
                 "storage_key": storage_key,
